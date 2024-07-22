@@ -1,49 +1,36 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 
-	"device-pinger/constants"
-	"device-pinger/mqtt"
+	"device-pinger/lib/mqttclient"
+	"device-pinger/lib/workers"
+
+	_ "github.com/joho/godotenv/autoload"
 )
-
-var handleOnlineChange OnlineStatusChangeHandler = func(target string, online bool) {
-	token := mqtt.Client().Publish(
-		fmt.Sprintf("device-pinger/%v/status", target),
-		0,
-		false,
-		fmt.Sprintf(`{"online":%v}`, online),
-	)
-	token.Wait()
-}
 
 func main() {
 
 	// mqtt
-	mqtt.Init()
+	mqttclient.Init()
 
-	// init chan for async errors
-	errorsCh := make(chan error)
-
-	// immediately pull and print errors from chan
+	// immediately pull and print all emitted worker errors
 	go func() {
-		for e := range errorsCh {
+		for e := range workers.GetErrors() {
 			log.Println(e)
 		}
 	}()
 
 	// spawn workers
-	for _, target := range constants.TARGET_IPS {
-		workersWg.Add(1)
-		worker := SpawnWorker(
+	tt := strings.Split(os.Getenv("TARGET_IPS"), ",")
+	for _, target := range tt {
+		workers.Push(workers.Create(
 			target,
-			errorsCh,
-			handleOnlineChange,
-		)
-		workers = append(workers, worker)
+			mqttclient.HandleOnlineChange,
+		))
 	}
 
 	// handle program interrupt
@@ -53,17 +40,17 @@ func main() {
 		for range c {
 			log.Printf(
 				"[MAIN] Interrupt signal captured, stopping %v workers...\n",
-				len(workers),
+				workers.GetCount(),
 			)
-			for _, worker := range workers {
+			for _, worker := range workers.Get() {
 				worker.Stop()
 			}
 		}
-		close(errorsCh)
+		close(workers.GetErrors())
 	}()
 
 	// infinetly wait for workers to complete
-	workersWg.Wait()
+	workers.Wait()
 
 	log.Println("[MAIN] all done, bye-bye")
 
