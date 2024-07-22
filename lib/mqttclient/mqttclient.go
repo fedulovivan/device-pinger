@@ -1,23 +1,25 @@
 package mqttclient
 
-// mqtt topics
-// PUB device-pinger/<ip>/status, payload {"online":true}
-// SUB device-pinger/<ip>/add, any payload
-// SUB device-pinger/<ip>/remove, any payload
-
 import (
-	"device-pinger/lib/utils"
-	"device-pinger/lib/workers"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"sync"
 
+	"github.com/fedulovivan/device-pinger/lib/utils"
+	"github.com/fedulovivan/device-pinger/lib/workers"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 var client mqtt.Client
+
+var brokerString = fmt.Sprintf(
+	"tcp://%s:%s",
+	os.Getenv("MQTT_BROKER"),
+	os.Getenv("MQTT_PORT"),
+)
 
 func Shutdown() {
 	log.Println("[MQTT] Shutdown")
@@ -26,11 +28,7 @@ func Shutdown() {
 
 func Init() mqtt.Client {
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf(
-		"tcp://%s:%s",
-		os.Getenv("MQTT_BROKER"),
-		os.Getenv("MQTT_PORT"),
-	))
+	opts.AddBroker(brokerString)
 	opts.SetClientID(os.Getenv("MQTT_CLIENT_ID"))
 	opts.SetUsername(os.Getenv("MQTT_USERNAME"))
 	opts.SetPassword(os.Getenv("MQTT_PASSWORD"))
@@ -88,7 +86,7 @@ var defaultMessageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqt
 				HandleOnlineChange,
 			))
 		}
-	case "delete":
+	case "del":
 		log.Println("[MQTT] Deleting worker for " + target)
 		if workers.Has(target) {
 			workers.Delete(target)
@@ -99,7 +97,7 @@ var defaultMessageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqt
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	log.Printf("[MQTT] Connected\n")
+	log.Printf("[MQTT] Connected to %v\n", brokerString)
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
@@ -109,7 +107,7 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 func subscribe(client mqtt.Client, topic string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if token := client.Subscribe(topic, 0, nil); token.Wait() && token.Error() != nil {
-		log.Fatal(token.Error())
+		log.Fatalf("[MQTT] client.Subscribe() %v", token.Error())
 	}
 	log.Printf("[MQTT] Subscribed to %s topic\n", topic)
 }

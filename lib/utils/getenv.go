@@ -7,10 +7,15 @@ import (
 	"time"
 )
 
-func GetDurationEnv(name string) time.Duration {
-	value, err := strconv.Atoi(os.Getenv(name))
-	if err != nil {
-		log.Fatalf("[MAIN] cannot parse %v to integer: %v", name, err)
+func GetNumericEnv(name string, defValue int) time.Duration {
+	stringValue, found := os.LookupEnv(name)
+	if found {
+		value, parseErr := strconv.Atoi(stringValue)
+		if parseErr == nil {
+			return time.Duration(value) * time.Second
+		} else {
+			log.Printf("[MAIN] cannot parse %v to integer: %v", name, parseErr)
+		}
 	}
-	return time.Duration(value) * time.Second
+	return time.Duration(defValue) * time.Second
 }

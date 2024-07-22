@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"strings"
 
-	"device-pinger/lib/mqttclient"
-	"device-pinger/lib/workers"
+	"github.com/fedulovivan/device-pinger/lib/mqttclient"
+	"github.com/fedulovivan/device-pinger/lib/workers"
 
 	_ "github.com/joho/godotenv/autoload"
 )

@@ -1,11 +1,12 @@
 package workers
 
 import (
-	"device-pinger/lib/utils"
 	"fmt"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/fedulovivan/device-pinger/lib/utils"
 
 	probing "github.com/prometheus-community/pro-bing"
 )
@@ -14,6 +15,12 @@ var workers map[string](*Worker)
 var lock sync.RWMutex
 var wg sync.WaitGroup
 var errorsCh chan error
+
+const (
+	OFFLINE_AFTER_DEF          = 30
+	PINGER_INTERVAL_DEF        = 5
+	OFFLINE_CHECK_INTERVAL_DEF = 5
+)
 
 type Worker struct {
 	target        string
@@ -74,9 +81,9 @@ func Push(worker *Worker) {
 
 func (worker *Worker) Stop() {
 	worker.lock.Lock()
-	log.Printf("[WRKR:%v] Calling Stop()\n", worker.target)
+	log.Printf("[WORKER:%v] Calling Stop()\n", worker.target)
 	if worker.stopped {
-		log.Fatalf("[WRKR:%v] Already stopped!", worker.target)
+		log.Fatalf("[WORKER:%v] Already stopped!", worker.target)
 		return
 	}
 	worker.pinger.Stop()
@@ -94,7 +101,7 @@ func (worker *Worker) UpdateOnline(online bool, updSource string, onChange Onlin
 			textStatus = "ONLINE"
 		}
 		log.Printf(
-			"[WRKR:%v] updSource=%v status=%v\n",
+			"[WORKER:%v] updSource=%v status=%v\n",
 			worker.target,
 			updSource,
 			textStatus,
@@ -123,20 +130,27 @@ func Create(target string, onChange OnlineStatusChangeHandler) *Worker {
 		invalid:       false,
 	}
 
+	// provide custom logger to Pinger, to write messages with "[WORKER:<ip>]..." prefix
+	mylogger := WorkerLogger{
+		Logger: log.New(log.Writer(), log.Prefix(), log.Flags()),
+		target: target,
+	}
+
 	var err error
 	worker.pinger, err = probing.NewPinger(target)
 	if err != nil {
-		errorsCh <- fmt.Errorf("[WRKR:%v] failed to complete probing.NewPinger() %v", target, err)
+		errorsCh <- fmt.Errorf("[WORKER:%v] failed to complete probing.NewPinger() %v", target, err)
 		worker.invalid = true
 	}
-	worker.pinger.Interval = utils.GetDurationEnv("PINGER_INTERVAL")
+	worker.pinger.Interval = utils.GetNumericEnv("PINGER_INTERVAL", PINGER_INTERVAL_DEF)
+	worker.pinger.SetLogger(mylogger)
 
 	// start periodic checks to ensure device is still online
-	worker.onlineChecker = time.NewTicker(utils.GetDurationEnv("OFFLINE_CHECK_INTERVAL"))
+	worker.onlineChecker = time.NewTicker(utils.GetNumericEnv("OFFLINE_CHECK_INTERVAL", OFFLINE_CHECK_INTERVAL_DEF))
 	go func() {
 		for range worker.onlineChecker.C {
 			worker.lock.Lock()
-			online := time.Now().Before(worker.lastSeen.Add(utils.GetDurationEnv("OFFLINE_AFTER")))
+			online := time.Now().Before(worker.lastSeen.Add(utils.GetNumericEnv("OFFLINE_AFTER", OFFLINE_AFTER_DEF)))
 			worker.UpdateOnline(online, "Worker.Ticker", onChange)
 			worker.lock.Unlock()
 		}
@@ -152,17 +166,17 @@ func Create(target string, onChange OnlineStatusChangeHandler) *Worker {
 
 	go func() {
 		if worker.invalid {
-			errorsCh <- fmt.Errorf("[WRKR:%v] Cannot run pinger since worker already marked as invalid", target)
+			errorsCh <- fmt.Errorf("[WORKER:%v] Cannot run pinger since worker already marked as invalid", target)
 		} else {
 			err = worker.pinger.Run()
 			if err != nil {
-				errorsCh <- fmt.Errorf("[WRKR:%v] Failed to complete pinger.Run(): %v", target, err)
+				errorsCh <- fmt.Errorf("[WORKER:%v] Failed to complete pinger.Run(): %v", target, err)
 				worker.invalid = true
 			}
 		}
 	}()
 
-	log.Printf("[WRKR:%v] Created\n", worker.target)
+	log.Printf("[WORKER:%v] Created\n", worker.target)
 
 	return &worker
 }

@@ -1,4 +1,4 @@
-module device-pinger
+module github.com/fedulovivan/device-pinger
 
 go 1.22.2
 
