@@ -26,3 +26,13 @@ Configuration is set via .env files. In development file .env is always loaded. 
 ### Pitfalls
 
 Application is terminated if no target IP is set or all were deleted, to be fixed.
+
+
+### Screenshots
+
+Console
+![console.png](assets/02-console.png)
+MQTT Explorer
+![mqtt-explorer.png](assets/01-mqtt-explorer.png) 
+Image size
+![image-size.png](assets/03-image-size.png)
