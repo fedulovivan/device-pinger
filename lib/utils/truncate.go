@@ -1,8 +1,9 @@
 package utils
 
-func Truncate(in []byte, limit uint) []byte {
-	if uint(len(in)) <= limit {
+// https://stackoverflow.com/questions/58635507/rune-vs-byte-ranging-over-string
+func Truncate(in string, limit uint) string {
+	if uint(len([]rune(in))) <= limit {
 		return in
 	}
-	return in[:limit]
+	return string([]rune(in)[:limit])
 }

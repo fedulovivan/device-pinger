@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fedulovivan/device-pinger/lib/config"
 	"github.com/fedulovivan/device-pinger/lib/utils"
 
 	probing "github.com/prometheus-community/pro-bing"
@@ -15,12 +16,6 @@ var workers map[string](*Worker)
 var lock sync.RWMutex
 var wg sync.WaitGroup
 var errorsCh chan error
-
-const (
-	OFFLINE_AFTER_DEF          = 30
-	PINGER_INTERVAL_DEF        = 5
-	OFFLINE_CHECK_INTERVAL_DEF = 5
-)
 
 type Worker struct {
 	target        string
@@ -113,6 +108,8 @@ func (worker *Worker) UpdateOnline(online bool, updSource string, onChange Onlin
 
 func Create(target string, onChange OnlineStatusChangeHandler) *Worker {
 
+	cfg := config.GetInstance()
+
 	wg.Add(1)
 
 	if errorsCh == nil {
@@ -142,15 +139,19 @@ func Create(target string, onChange OnlineStatusChangeHandler) *Worker {
 		errorsCh <- fmt.Errorf("[WORKER:%v] failed to complete probing.NewPinger() %v", target, err)
 		worker.invalid = true
 	}
-	worker.pinger.Interval = utils.GetNumericEnv("PINGER_INTERVAL", PINGER_INTERVAL_DEF)
+	worker.pinger.Interval = cfg.PingerInterval
 	worker.pinger.SetLogger(mylogger)
 
 	// start periodic checks to ensure device is still online
-	worker.onlineChecker = time.NewTicker(utils.GetNumericEnv("OFFLINE_CHECK_INTERVAL", OFFLINE_CHECK_INTERVAL_DEF))
+	worker.onlineChecker = time.NewTicker(
+		cfg.OfflineCheckInterval,
+	)
 	go func() {
 		for range worker.onlineChecker.C {
 			worker.lock.Lock()
-			online := time.Now().Before(worker.lastSeen.Add(utils.GetNumericEnv("OFFLINE_AFTER", OFFLINE_AFTER_DEF)))
+			online := time.Now().Before(worker.lastSeen.Add(
+				cfg.OfflineAfter,
+			))
 			worker.UpdateOnline(online, "Worker.Ticker", onChange)
 			worker.lock.Unlock()
 		}

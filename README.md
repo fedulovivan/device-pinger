@@ -23,10 +23,10 @@ Configuration is set via .env files. In development file .env is always loaded. 
 - build local binary `make`
 - run `make run`
 
-### Pitfalls
+### TODO
 
-Application is terminated if no target IP is set or all were deleted, to be fixed.
-
+- application is terminated if no target IP is set or all were deleted, to be fixed.
+- switch to https://github.com/sethvargo/go-envconfig
 
 ### Screenshots
 

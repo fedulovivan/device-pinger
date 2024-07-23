@@ -4,15 +4,16 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 
+	"github.com/fedulovivan/device-pinger/lib/config"
 	"github.com/fedulovivan/device-pinger/lib/mqttclient"
 	"github.com/fedulovivan/device-pinger/lib/workers"
-
-	_ "github.com/joho/godotenv/autoload"
 )
 
 func main() {
+
+	// get config struct
+	cfg := config.GetInstance()
 
 	// mqtt
 	mqttclient.Init()
@@ -25,8 +26,7 @@ func main() {
 	}()
 
 	// spawn workers
-	tt := strings.Split(os.Getenv("TARGET_IPS"), ",")
-	for _, target := range tt {
+	for _, target := range cfg.TargetIps {
 		workers.Push(workers.Create(
 			target,
 			mqttclient.HandleOnlineChange,
@@ -34,10 +34,10 @@ func main() {
 	}
 
 	// handle program interrupt
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, os.Interrupt)
 	go func() {
-		for range c {
+		for range sc {
 			log.Printf(
 				"[MAIN] Interrupt signal captured, stopping %v workers...\n",
 				workers.GetCount(),

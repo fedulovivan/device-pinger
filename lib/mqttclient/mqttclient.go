@@ -3,10 +3,10 @@ package mqttclient
 import (
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync"
 
+	"github.com/fedulovivan/device-pinger/lib/config"
 	"github.com/fedulovivan/device-pinger/lib/utils"
 	"github.com/fedulovivan/device-pinger/lib/workers"
 
@@ -15,11 +15,10 @@ import (
 
 var client mqtt.Client
 
-var brokerString = fmt.Sprintf(
-	"tcp://%s:%s",
-	os.Getenv("MQTT_BROKER"),
-	os.Getenv("MQTT_PORT"),
-)
+func GetBokerString() string {
+	cfg := config.GetInstance()
+	return fmt.Sprintf("tcp://%s:%d", cfg.MqttBroker, cfg.MqttPort)
+}
 
 func Shutdown() {
 	log.Println("[MQTT] Shutdown")
@@ -27,11 +26,12 @@ func Shutdown() {
 }
 
 func Init() mqtt.Client {
+	cfg := config.GetInstance()
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(brokerString)
-	opts.SetClientID(os.Getenv("MQTT_CLIENT_ID"))
-	opts.SetUsername(os.Getenv("MQTT_USERNAME"))
-	opts.SetPassword(os.Getenv("MQTT_PASSWORD"))
+	opts.AddBroker(GetBokerString())
+	opts.SetClientID(cfg.MqttClientId)
+	opts.SetUsername(cfg.MqttUsername)
+	opts.SetPassword(cfg.MqttPassword)
 	opts.SetDefaultPublishHandler(defaultMessageHandler)
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
@@ -62,7 +62,7 @@ var defaultMessageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqt
 	log.Printf(
 		"[MQTT] TOPIC=%s MESSAGE=%s\n",
 		topic,
-		utils.Truncate(msg.Payload(), 80),
+		utils.Truncate(string(msg.Payload()), 80),
 	)
 
 	tt := strings.Split(topic, "/")
@@ -97,7 +97,7 @@ var defaultMessageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqt
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	log.Printf("[MQTT] Connected to %v\n", brokerString)
+	log.Printf("[MQTT] Connected to %v\n", GetBokerString())
 }
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
@@ -113,8 +113,9 @@ func subscribe(client mqtt.Client, topic string, wg *sync.WaitGroup) {
 }
 
 func subscribeAll(client mqtt.Client) {
+	cfg := config.GetInstance()
 	var wg sync.WaitGroup
-	for _, topic := range []string{os.Getenv("MQTT_TOPIC_BASE") + "/#"} {
+	for _, topic := range []string{cfg.MqttTopicBase + "/#"} {
 		wg.Add(1)
 		go subscribe(client, topic, &wg)
 	}
