@@ -45,12 +45,12 @@ func Init() mqtt.Client {
 	return client
 }
 
-var HandleOnlineChange workers.OnlineStatusChangeHandler = func(target string, online bool) {
+var HandleOnlineChange workers.OnlineStatusChangeHandler = func(target string, status workers.OnlineStatus) {
 	token := client.Publish(
 		fmt.Sprintf("device-pinger/%v/status", target),
 		0,
 		false,
-		fmt.Sprintf(`{"online":%v}`, online),
+		fmt.Sprintf(`{"status":%v}`, status),
 	)
 	token.Wait()
 }
@@ -74,24 +74,33 @@ var defaultMessageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqt
 
 	target := tt[1]
 	action := tt[2]
+	exist := workers.Has(target)
 
 	switch action {
+	case "get":
+		log.Println("[MQTT] Getting status for " + target)
+		if exist {
+			worker := workers.Get(target)
+			HandleOnlineChange(target, worker.Status())
+		} else {
+			log.Println("[MQTT] Not yet exist or already deleted")
+		}
 	case "add":
 		log.Println("[MQTT] Adding new worker for " + target)
-		if workers.Has(target) {
+		if exist {
 			log.Println("[MQTT] Already exist")
 		} else {
-			workers.Push(workers.Create(
+			workers.Add(workers.Create(
 				target,
 				HandleOnlineChange,
 			))
 		}
 	case "del":
 		log.Println("[MQTT] Deleting worker for " + target)
-		if workers.Has(target) {
-			workers.Delete(target)
+		if exist {
+			workers.Delete(target, HandleOnlineChange)
 		} else {
-			log.Println("[MQTT] Not yet exist")
+			log.Println("[MQTT] Not yet exist or already deleted")
 		}
 	}
 }

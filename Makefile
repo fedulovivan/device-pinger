@@ -5,7 +5,7 @@ default: build
 
 .PHONY: build
 build: test
-	CGO_ENABLED=0 GOOS=linux go build -o ./$(NAME)
+	CGO_ENABLED=0 go build -o ./$(NAME)
 
 .PHONY: run
 run:

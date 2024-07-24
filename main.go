@@ -20,14 +20,16 @@ func main() {
 
 	// immediately pull and print all emitted worker errors
 	go func() {
-		for e := range workers.GetErrors() {
+		for e := range workers.Errors {
 			log.Println(e)
 		}
 	}()
 
+	// add extra wg item to keep app runnnig with zero workers
+	workers.Wg.Add(1)
 	// spawn workers
 	for _, target := range cfg.TargetIps {
-		workers.Push(workers.Create(
+		workers.Add(workers.Create(
 			target,
 			mqttclient.HandleOnlineChange,
 		))
@@ -42,15 +44,16 @@ func main() {
 				"[MAIN] Interrupt signal captured, stopping %v workers...\n",
 				workers.GetCount(),
 			)
-			for _, worker := range workers.Get() {
-				worker.Stop()
+			for _, worker := range workers.GetAsList() {
+				worker.Stop(mqttclient.HandleOnlineChange)
 			}
+			workers.Wg.Done()
 		}
-		close(workers.GetErrors())
+		close(workers.Errors)
 	}()
 
 	// infinetly wait for workers to complete
-	workers.Wait()
+	workers.Wg.Wait()
 
 	log.Println("[MAIN] all done, bye-bye")
 

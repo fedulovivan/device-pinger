@@ -1,6 +1,10 @@
 package workers
 
-import "log"
+import (
+	"fmt"
+	"log"
+	"strings"
+)
 
 type WorkerLogger struct {
 	Logger *log.Logger
@@ -8,6 +12,10 @@ type WorkerLogger struct {
 }
 
 func (l WorkerLogger) Fatalf(format string, v ...interface{}) {
+	var err = fmt.Sprintf("%v", v)
+	if strings.Contains(err, "host is down") || strings.Contains(err, "no route to host") {
+		return
+	}
 	l.Logger.Printf("[WORKER:"+l.target+"] "+format, v...)
 }
 

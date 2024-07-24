@@ -4,7 +4,7 @@ A simple alternative to https://github.com/andrewjfreyer/monitor which I failed 
 
 ### Mqtt Api
 
-- To receive statuses - subscribe to `device-pinger/<ip>/status` or wildcard `device-pinger/`, payload would be `{"online":true}` or `{"online":false}`
+- To receive statuses - subscribe to `device-pinger/<ip>/status` or wildcard `device-pinger/`, payload would be `{"status":<status>}`, with 3 possible **status** values -1, 1, 0
 - Add new IP to monitor - publish to `device-pinger/<ip>/add` with any payload
 - Delete IP from monitoring - publish to `device-pinger/<ip>/del` with any payload
 
@@ -25,8 +25,18 @@ Configuration is set via .env files. In development file .env is always loaded. 
 
 ### TODO
 
-- application is terminated if no target IP is set or all were deleted, to be fixed.
-- switch to https://github.com/sethvargo/go-envconfig
+- check memleaks, find better way to silence certain errors in "func (l WorkerLogger) Fatalf()"
+- add some basic telemetry
+- send feedback via mqtt for actions add/del
+- (+) skip repeating errors like "no route to host"
+- (+) implement mqtt "get" action
+- (+) implement periodic status updates
+- (+) fixed build commad for "exec format error"
+- (+) split into worker and workers
+- (+) workers.lock does not utilize full power of RWMutex
+- (+) application is terminated if no target IP is set or all were deleted, to be fixed.
+- (+) switch to https://github.com/sethvargo/go-envconfig
+- (+) send first status update right after application startup
 
 ### Screenshots
 
