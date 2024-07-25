@@ -23,12 +23,15 @@ Configuration is set via .env files. In development file .env is always loaded. 
 - build local binary `make`
 - run `make run`
 
-### TODO
+### TODOs
 
-- check for memleaks
+- check for leaks no nemory release after deleting workers - released with some delay (deferred GC?)
+- poor performace - 10 workers consume 4mb ram and 4% cpu
 - find better way to silence certain errors in "func (l WorkerLogger) Fatalf()"
 - add some basic telemetry
-- find reason for the unexpected image size growth from 7.7mb to 8.1mb
+- find root cause of the unreasonable docker image size growth from 7.7mb to 8.4mb
+- check why device-pinger is reported by htop several times
+- (+) no gracefull shutdown inside docker
 - (+) integrate into main docker-compose stack
 - (+) send feedback via mqtt for add/del operations
 - (+) rename mqttclient to mqtt
