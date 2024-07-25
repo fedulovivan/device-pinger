@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/fedulovivan/device-pinger/lib/config"
 	"github.com/fedulovivan/device-pinger/lib/mqtt"
@@ -37,7 +38,7 @@ func main() {
 
 	// handle program interrupt
 	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, os.Interrupt)
+	signal.Notify(sc, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		for range sc {
 			log.Printf(
