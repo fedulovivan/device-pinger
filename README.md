@@ -25,9 +25,15 @@ Configuration is set via .env files. In development file .env is always loaded. 
 
 ### TODO
 
-- check memleaks, find better way to silence certain errors in "func (l WorkerLogger) Fatalf()"
+- check for memleaks
+- find better way to silence certain errors in "func (l WorkerLogger) Fatalf()"
 - add some basic telemetry
-- send feedback via mqtt for actions add/del
+- find reason for the unexpected image size growth from 7.7mb to 8.1mb
+- (+) integrate into main docker-compose stack
+- (+) send feedback via mqtt for add/del operations
+- (+) rename mqttclient to mqtt
+- (+) exclude "go test" from docker-build (to avoid installing go on build host)
+- (+) push changes from MacMini
 - (+) skip repeating errors like "no route to host"
 - (+) implement mqtt "get" action
 - (+) implement periodic status updates

@@ -1,6 +1,7 @@
-package mqttclient
+package mqtt
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -10,14 +11,28 @@ import (
 	"github.com/fedulovivan/device-pinger/lib/utils"
 	"github.com/fedulovivan/device-pinger/lib/workers"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	MqttLib "github.com/eclipse/paho.mqtt.golang"
 )
 
-var client mqtt.Client
+type SequencedRequest struct {
+	Seq int `json:"seq"`
+}
+
+type SequencedResponse struct {
+	Seq     int    `json:"seq"`
+	Message string `json:"message"`
+	IsError bool   `json:"error"`
+}
+
+type StatusResponse struct {
+	Status workers.OnlineStatus `json:"status"`
+}
+
+var client MqttLib.Client
 
 func GetBokerString() string {
 	cfg := config.GetInstance()
-	return fmt.Sprintf("tcp://%s:%d", cfg.MqttBroker, cfg.MqttPort)
+	return fmt.Sprintf("tcp://%s:%d", cfg.MqttHost, cfg.MqttPort)
 }
 
 func Shutdown() {
@@ -25,9 +40,9 @@ func Shutdown() {
 	client.Disconnect(250)
 }
 
-func Init() mqtt.Client {
+func Init() *MqttLib.Client {
 	cfg := config.GetInstance()
-	opts := mqtt.NewClientOptions()
+	opts := MqttLib.NewClientOptions()
 	opts.AddBroker(GetBokerString())
 	opts.SetClientID(cfg.MqttClientId)
 	opts.SetUsername(cfg.MqttUsername)
@@ -35,28 +50,51 @@ func Init() mqtt.Client {
 	opts.SetDefaultPublishHandler(defaultMessageHandler)
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
-	client = mqtt.NewClient(opts)
+	client = MqttLib.NewClient(opts)
 	log.Println("[MQTT]", "Connecting to broker...")
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		log.Println("[MQTT]", token.Error())
 	} else {
 		subscribeAll(client)
 	}
-	return client
+	return &client
 }
 
-var HandleOnlineChange workers.OnlineStatusChangeHandler = func(target string, status workers.OnlineStatus) {
+func GetTopic(target string, action string) string {
+	cfg := config.GetInstance()
+	return strings.Join([]string{cfg.MqttTopicBase, target, action}, "/")
+}
+
+func Publish(target string, action string, msg any) error {
+	resString, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
 	token := client.Publish(
-		fmt.Sprintf("device-pinger/%v/status", target),
+		GetTopic(target, action),
 		0,
 		false,
-		fmt.Sprintf(`{"status":%v}`, status),
+		resString,
 	)
 	token.Wait()
+	return nil
 }
 
-var defaultMessageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
+var SendStatus workers.OnlineStatusChangeHandler = func(target string, status workers.OnlineStatus) {
+	msg := StatusResponse{status}
+	Publish(target, "status", msg)
+}
 
+func SendOpFeedback(req *SequencedRequest, target string, message string, isError bool) {
+	msg := SequencedResponse{
+		Message: message,
+		IsError: isError,
+		Seq:     req.Seq,
+	}
+	Publish(target, "rsp", msg)
+}
+
+var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, msg MqttLib.Message) {
 	topic := msg.Topic()
 
 	log.Printf(
@@ -76,44 +114,49 @@ var defaultMessageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqt
 	action := tt[2]
 	exist := workers.Has(target)
 
+	req := SequencedRequest{}
+	json.Unmarshal(msg.Payload(), &req)
+
 	switch action {
 	case "get":
 		log.Println("[MQTT] Getting status for " + target)
 		if exist {
 			worker := workers.Get(target)
-			HandleOnlineChange(target, worker.Status())
+			SendStatus(target, worker.Status())
 		} else {
-			log.Println("[MQTT] Not yet exist or already deleted")
+			SendOpFeedback(&req, target, "not exist", true)
 		}
 	case "add":
 		log.Println("[MQTT] Adding new worker for " + target)
 		if exist {
-			log.Println("[MQTT] Already exist")
+			SendOpFeedback(&req, target, "already exist", true)
 		} else {
 			workers.Add(workers.Create(
 				target,
-				HandleOnlineChange,
+				SendStatus,
 			))
+			SendOpFeedback(&req, target, "added", false)
 		}
 	case "del":
 		log.Println("[MQTT] Deleting worker for " + target)
 		if exist {
-			workers.Delete(target, HandleOnlineChange)
+			workers.Delete(target, SendStatus)
+			SendOpFeedback(&req, target, "deleted", false)
 		} else {
-			log.Println("[MQTT] Not yet exist or already deleted")
+			SendOpFeedback(&req, target, "not exist", true)
 		}
 	}
 }
 
-var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
+var connectHandler MqttLib.OnConnectHandler = func(client MqttLib.Client) {
 	log.Printf("[MQTT] Connected to %v\n", GetBokerString())
 }
 
-var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
+var connectLostHandler MqttLib.ConnectionLostHandler = func(client MqttLib.Client, err error) {
 	log.Printf("[MQTT] Connection lost: %v\n", err)
 }
 
-func subscribe(client mqtt.Client, topic string, wg *sync.WaitGroup) {
+func subscribe(client MqttLib.Client, topic string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if token := client.Subscribe(topic, 0, nil); token.Wait() && token.Error() != nil {
 		log.Fatalf("[MQTT] client.Subscribe() %v", token.Error())
@@ -121,7 +164,7 @@ func subscribe(client mqtt.Client, topic string, wg *sync.WaitGroup) {
 	log.Printf("[MQTT] Subscribed to %s topic\n", topic)
 }
 
-func subscribeAll(client mqtt.Client) {
+func subscribeAll(client MqttLib.Client) {
 	cfg := config.GetInstance()
 	var wg sync.WaitGroup
 	for _, topic := range []string{cfg.MqttTopicBase + "/#"} {

@@ -6,7 +6,7 @@ import (
 	"os/signal"
 
 	"github.com/fedulovivan/device-pinger/lib/config"
-	"github.com/fedulovivan/device-pinger/lib/mqttclient"
+	"github.com/fedulovivan/device-pinger/lib/mqtt"
 	"github.com/fedulovivan/device-pinger/lib/workers"
 )
 
@@ -16,7 +16,7 @@ func main() {
 	cfg := config.GetInstance()
 
 	// mqtt
-	mqttclient.Init()
+	mqtt.Init()
 
 	// immediately pull and print all emitted worker errors
 	go func() {
@@ -31,7 +31,7 @@ func main() {
 	for _, target := range cfg.TargetIps {
 		workers.Add(workers.Create(
 			target,
-			mqttclient.HandleOnlineChange,
+			mqtt.SendStatus,
 		))
 	}
 
@@ -41,11 +41,11 @@ func main() {
 	go func() {
 		for range sc {
 			log.Printf(
-				"[MAIN] Interrupt signal captured, stopping %v workers...\n",
+				"[MAIN] Interrupt signal captured, stopping %v worker(s)...\n",
 				workers.GetCount(),
 			)
 			for _, worker := range workers.GetAsList() {
-				worker.Stop(mqttclient.HandleOnlineChange)
+				worker.Stop(mqtt.SendStatus)
 			}
 			workers.Wg.Done()
 		}

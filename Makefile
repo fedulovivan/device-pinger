@@ -5,7 +5,7 @@ default: build
 
 .PHONY: build
 build: test
-	CGO_ENABLED=0 go build -o ./$(NAME)
+	CGO_ENABLED=0 go build -o $(NAME)
 
 .PHONY: run
 run:
@@ -20,12 +20,16 @@ test:
 	go test -cover -race -count 1 ./...
 
 .PHONY: docker-build
-docker-build: test
+docker-build:
 	DOCKER_CLI_HINTS=false docker build --tag $(NAME) .
 
-.PHONY: docker-run
-docker-run:
-	docker run --env-file=$(CONF) $(NAME)
+.PHONY: docker-down
+docker-down:
+	docker stop $(NAME) && docker rm $(NAME)
+
+.PHONY: docker-up
+docker-up:
+	docker run -d --env-file=$(CONF) --name=$(NAME) $(NAME)
 
 .PHONY: clean
 clean:

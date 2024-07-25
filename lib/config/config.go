@@ -15,11 +15,11 @@ var (
 )
 
 type Config struct {
-	TargetIps              []string      `env:"TARGET_IPS,required"`
-	MqttBroker             string        `env:"MQTT_BROKER,required"`
+	TargetIps              []string      `env:"TARGET_IPS"`
+	MqttHost               string        `env:"MQTT_HOST,default=mosquitto"`
+	MqttPort               int           `env:"MQTT_PORT,default=1883"`
 	MqttUsername           string        `env:"MQTT_USERNAME"`
 	MqttPassword           string        `env:"MQTT_PASSWORD"`
-	MqttPort               int           `env:"MQTT_PORT,default=1883"`
 	MqttTopicBase          string        `env:"MQTT_TOPIC_BASE,default=device-pinger"`
 	MqttClientId           string        `env:"MQTT_CLIENT_ID,default=device-pinger"`
 	OfflineAfter           time.Duration `env:"OFFLINE_AFTER,default=30s"`
