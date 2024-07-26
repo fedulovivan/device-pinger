@@ -2,12 +2,12 @@ package workers
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 )
 
 type WorkerLogger struct {
-	Logger *log.Logger
+	Logger *slog.Logger
 	target string
 }
 
@@ -16,21 +16,21 @@ func (l WorkerLogger) Fatalf(format string, v ...interface{}) {
 	if strings.Contains(err, "host is down") || strings.Contains(err, "no route to host") {
 		return
 	}
-	l.Logger.Printf("[WORKER:"+l.target+"] "+format, v...)
+	l.Logger.Debug(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
 }
 
 func (l WorkerLogger) Errorf(format string, v ...interface{}) {
-	l.Logger.Printf("[WORKER:"+l.target+"] "+format, v...)
+	l.Logger.Debug(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
 }
 
 func (l WorkerLogger) Warnf(format string, v ...interface{}) {
-	l.Logger.Printf("[WORKER:"+l.target+"] "+format, v...)
+	l.Logger.Debug(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
 }
 
 func (l WorkerLogger) Infof(format string, v ...interface{}) {
-	l.Logger.Printf("[WORKER:"+l.target+"] "+format, v...)
+	l.Logger.Debug(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
 }
 
 func (l WorkerLogger) Debugf(format string, v ...interface{}) {
-	l.Logger.Printf("[WORKER:"+l.target+"] "+format, v...)
+	l.Logger.Debug(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
 }

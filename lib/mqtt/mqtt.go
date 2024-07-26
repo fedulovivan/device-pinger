@@ -3,7 +3,7 @@ package mqtt
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -36,7 +36,7 @@ func GetBokerString() string {
 }
 
 func Shutdown() {
-	log.Println("[MQTT] Shutdown")
+	slog.Info("[MQTT] Shutdown")
 	client.Disconnect(250)
 }
 
@@ -51,9 +51,9 @@ func Init() *MqttLib.Client {
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
 	client = MqttLib.NewClient(opts)
-	log.Println("[MQTT]", "Connecting to broker...")
+	slog.Info("[MQTT] Connecting...")
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		log.Println("[MQTT]", token.Error())
+		slog.Error("[MQTT]", "error", token.Error())
 	} else {
 		subscribeAll(client)
 	}
@@ -77,12 +77,18 @@ func Publish(target string, action string, msg any) error {
 		resString,
 	)
 	token.Wait()
+	if token.Error() != nil {
+		return token.Error()
+	}
 	return nil
 }
 
 var SendStatus workers.OnlineStatusChangeHandler = func(target string, status workers.OnlineStatus) {
 	msg := StatusResponse{status}
-	Publish(target, "status", msg)
+	err := Publish(target, "status", msg)
+	if err != nil {
+		slog.Error("[MQTT]", "err", err)
+	}
 }
 
 func SendOpFeedback(req *SequencedRequest, target string, message string, isError bool) {
@@ -91,22 +97,25 @@ func SendOpFeedback(req *SequencedRequest, target string, message string, isErro
 		IsError: isError,
 		Seq:     req.Seq,
 	}
-	Publish(target, "rsp", msg)
+	err := Publish(target, "rsp", msg)
+	if err != nil {
+		slog.Error("[MQTT]", "err", err)
+	}
 }
 
 var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, msg MqttLib.Message) {
 	topic := msg.Topic()
 
-	log.Printf(
-		"[MQTT] TOPIC=%s MESSAGE=%s\n",
-		topic,
-		utils.Truncate(string(msg.Payload()), 80),
+	slog.Debug(
+		"[MQTT]",
+		"TOPIC", topic,
+		"MESSAGE", utils.Truncate(string(msg.Payload()), 80),
 	)
 
 	tt := strings.Split(topic, "/")
 
 	if len(tt) != 3 {
-		log.Println("[MQTT] Unexpected format for topic " + topic)
+		slog.Error("[MQTT] Unexpected topic format " + topic)
 		return
 	}
 
@@ -115,11 +124,16 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 	exist := workers.Has(target)
 
 	req := SequencedRequest{}
-	json.Unmarshal(msg.Payload(), &req)
+	if len(msg.Payload()) > 0 && msg.Payload()[0] == 123 /* 123 = "{" */ {
+		err := json.Unmarshal(msg.Payload(), &req)
+		if err != nil {
+			slog.Error("[MQTT]", "err", err)
+		}
+	}
 
 	switch action {
 	case "get":
-		log.Println("[MQTT] Getting status for " + target)
+		slog.Debug("[MQTT] Getting status for " + target)
 		if exist {
 			worker := workers.Get(target)
 			SendStatus(target, worker.Status())
@@ -127,7 +141,7 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 			SendOpFeedback(&req, target, "not exist", true)
 		}
 	case "add":
-		log.Println("[MQTT] Adding new worker for " + target)
+		slog.Debug("[MQTT] Adding new worker for " + target)
 		if exist {
 			SendOpFeedback(&req, target, "already exist", true)
 		} else {
@@ -138,7 +152,7 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 			SendOpFeedback(&req, target, "added", false)
 		}
 	case "del":
-		log.Println("[MQTT] Deleting worker for " + target)
+		slog.Debug("[MQTT] Deleting worker for " + target)
 		if exist {
 			workers.Delete(target, SendStatus)
 			SendOpFeedback(&req, target, "deleted", false)
@@ -149,19 +163,19 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 }
 
 var connectHandler MqttLib.OnConnectHandler = func(client MqttLib.Client) {
-	log.Printf("[MQTT] Connected to %v\n", GetBokerString())
+	slog.Info("[MQTT] Connected", "broker", GetBokerString())
 }
 
 var connectLostHandler MqttLib.ConnectionLostHandler = func(client MqttLib.Client, err error) {
-	log.Printf("[MQTT] Connection lost: %v\n", err)
+	slog.Error("[MQTT] Connection lost", "err", err)
 }
 
 func subscribe(client MqttLib.Client, topic string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if token := client.Subscribe(topic, 0, nil); token.Wait() && token.Error() != nil {
-		log.Fatalf("[MQTT] client.Subscribe() %v", token.Error())
+		slog.Error("[MQTT] client.Subscribe()", "err", token.Error())
 	}
-	log.Printf("[MQTT] Subscribed to %s topic\n", topic)
+	slog.Info("[MQTT] Subscribed", "topic", topic)
 }
 
 func subscribeAll(client MqttLib.Client) {
@@ -172,5 +186,5 @@ func subscribeAll(client MqttLib.Client) {
 		go subscribe(client, topic, &wg)
 	}
 	wg.Wait()
-	log.Printf("[MQTT] All subscribtions are settled\n")
+	slog.Info("[MQTT] All subscribtions are settled")
 }

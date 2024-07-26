@@ -2,7 +2,7 @@ package workers
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -39,9 +39,9 @@ type Worker struct {
 
 func (worker *Worker) Stop(onChange OnlineStatusChangeHandler) {
 	worker.lock.Lock()
-	log.Printf("[WORKER:%v] Calling Stop()\n", worker.target)
+	slog.Info(fmt.Sprintf("[WORKER:%v] Calling Stop()\n", worker.target))
 	if worker.stopped {
-		log.Fatalf("[WORKER:%v] Already stopped!", worker.target)
+		slog.Warn(fmt.Sprintf("[WORKER:%v] Already stopped!", worker.target))
 		return
 	}
 	worker.pinger.Stop()
@@ -57,15 +57,15 @@ func (worker *Worker) Status() OnlineStatus {
 	return worker.status
 }
 
-// (!) update is not protected by lock, since it is expected to be exetrnal
+// (!) update is not protected by lock, which is expected to be external
 func (worker *Worker) UpdateStatus(status OnlineStatus, updSource string, onChange OnlineStatusChangeHandler) {
 	if status != worker.status {
-		log.Printf(
+		slog.Debug(fmt.Sprintf(
 			"[WORKER:%v] updSource=%v status=%v\n",
 			worker.target,
 			updSource,
 			STATUS_NAMES[status],
-		)
+		))
 		onChange(worker.target, status)
 		worker.status = status
 	}
@@ -89,7 +89,7 @@ func Create(target string, onChange OnlineStatusChangeHandler) *Worker {
 
 	// provide custom logger to Pinger, to write messages with "[WORKER:<ip>]..." prefix
 	mylogger := WorkerLogger{
-		Logger: log.New(log.Writer(), log.Prefix(), log.Flags()),
+		Logger: slog.Default(),
 		target: target,
 	}
 
@@ -148,7 +148,7 @@ func Create(target string, onChange OnlineStatusChangeHandler) *Worker {
 		}
 	}()
 
-	log.Printf("[WORKER:%v] Created\n", worker.target)
+	slog.Debug(fmt.Sprintf("[WORKER:%v] Created\n", worker.target))
 
 	return &worker
 }

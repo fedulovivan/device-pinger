@@ -1,7 +1,7 @@
 package workers
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/fedulovivan/device-pinger/lib/utils"
@@ -22,7 +22,7 @@ func Add(worker *Worker) {
 		workers = make(map[string]*Worker)
 	}
 	workers[worker.target] = worker
-	log.Printf("[MAIN] Worker added, new map size %v", GetCount())
+	slog.Debug("[MAIN] Worker added", "size", GetCount())
 }
 
 // not nil-protected, use Has in outer code before calling Get
@@ -46,7 +46,7 @@ func Delete(target string, onChange OnlineStatusChangeHandler) {
 	if ok {
 		w.Stop(onChange)
 		delete(workers, target)
-		log.Printf("[MAIN] Worker deleted, new size %v", GetCount())
+		slog.Debug("[MAIN] Worker deleted", "size", GetCount())
 	}
 }
 

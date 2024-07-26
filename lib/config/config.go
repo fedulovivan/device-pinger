@@ -2,7 +2,8 @@ package config
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -26,15 +27,26 @@ type Config struct {
 	PingerInterval         time.Duration `env:"PINGER_INTERVAL,default=5s"`
 	OfflineCheckInterval   time.Duration `env:"OFFLINE_CHECK_INTERVAL,default=5s"`
 	PeriodicUpdateInterval time.Duration `env:"PERIODIC_UPDATE_INTERVAL,default=10m"`
+	LogLevel               slog.Level    `env:"LOG_LEVEL,default=debug"`
 }
 
 func load() {
-	godotenv.Load()
+	fileName, withConf := os.LookupEnv("CONF")
+	if !withConf {
+		fileName = ".env"
+	}
+	err := godotenv.Load(fileName)
+	if err != nil {
+		slog.Error("[MAIN] godotenv.Load()", "err", err)
+	} else {
+		slog.Info("[MAIN] env variables were loaded", "file", fileName)
+	}
 	ctx := context.Background()
 	if err := envconfig.Process(ctx, &cfg); err != nil {
-		log.Fatal(err)
+		slog.Error("[MAIN] failed loading env variables into config struct", "err", err)
+		os.Exit(1)
 	}
-	log.Printf("Starting with config %+v\n", cfg)
+	slog.Info("[MAIN] Starting with", "config", cfg)
 	loaded = true
 }
 

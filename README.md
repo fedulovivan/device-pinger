@@ -28,9 +28,11 @@ Configuration is set via .env files. In development file .env is always loaded. 
 - check for leaks no nemory release after deleting workers - released with some delay (deferred GC?)
 - poor performace - 10 workers consume 4mb ram and 4% cpu
 - find better way to silence certain errors in "func (l WorkerLogger) Fatalf()"
-- add some basic telemetry
+- add some basic telemetry and configure graphana
 - find root cause of the unreasonable docker image size growth from 7.7mb to 8.4mb
 - check why device-pinger is reported by htop several times
+- (+) add linter - golangci-lint
+- (+) add logging with level - switched to log/slog package
 - (+) no gracefull shutdown inside docker
 - (+) integrate into main docker-compose stack
 - (+) send feedback via mqtt for add/del operations

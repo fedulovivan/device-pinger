@@ -4,7 +4,7 @@ NAME ?= device-pinger
 default: build
 
 .PHONY: build
-build: test
+build: lint test
 	CGO_ENABLED=0 go build -o $(NAME)
 
 .PHONY: run
@@ -14,6 +14,10 @@ run:
 .PHONY: tidy
 tidy:
 	go mod tidy
+
+.PHONY: lint
+lint:
+	golangci-lint run
 
 .PHONY: test
 test:

@@ -1,7 +1,8 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,13 +17,16 @@ func main() {
 	// get config struct
 	cfg := config.GetInstance()
 
+	// update logger level from config
+	slog.SetLogLoggerLevel(cfg.LogLevel)
+
 	// mqtt
 	mqtt.Init()
 
 	// immediately pull and print all emitted worker errors
 	go func() {
 		for e := range workers.Errors {
-			log.Println(e)
+			slog.Error(e.Error())
 		}
 	}()
 
@@ -41,10 +45,10 @@ func main() {
 	signal.Notify(sc, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		for range sc {
-			log.Printf(
-				"[MAIN] Interrupt signal captured, stopping %v worker(s)...\n",
+			slog.Info(fmt.Sprintf(
+				"[MAIN] Interrupt signal captured, stopping %v worker(s)...",
 				workers.GetCount(),
-			)
+			))
 			for _, worker := range workers.GetAsList() {
 				worker.Stop(mqtt.SendStatus)
 			}
@@ -56,6 +60,6 @@ func main() {
 	// infinetly wait for workers to complete
 	workers.Wg.Wait()
 
-	log.Println("[MAIN] all done, bye-bye")
+	slog.Info("[MAIN] all done, bye-bye")
 
 }
