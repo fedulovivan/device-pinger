@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/fedulovivan/device-pinger/lib/utils"
+	"github.com/fedulovivan/device-pinger/internal/utils"
 )
 
 var (

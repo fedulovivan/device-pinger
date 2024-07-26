@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fedulovivan/device-pinger/lib/config"
-	"github.com/fedulovivan/device-pinger/lib/utils"
-	"github.com/fedulovivan/device-pinger/lib/workers"
+	"github.com/fedulovivan/device-pinger/internal/config"
+	"github.com/fedulovivan/device-pinger/internal/utils"
+	"github.com/fedulovivan/device-pinger/internal/workers"
 
 	MqttLib "github.com/eclipse/paho.mqtt.golang"
 )

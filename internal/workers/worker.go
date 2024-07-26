@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fedulovivan/device-pinger/lib/config"
+	"github.com/fedulovivan/device-pinger/internal/config"
 	probing "github.com/prometheus-community/pro-bing"
 )
 

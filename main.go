@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/fedulovivan/device-pinger/lib/config"
-	"github.com/fedulovivan/device-pinger/lib/mqtt"
-	"github.com/fedulovivan/device-pinger/lib/workers"
+	"github.com/fedulovivan/device-pinger/internal/config"
+	"github.com/fedulovivan/device-pinger/internal/mqtt"
+	"github.com/fedulovivan/device-pinger/internal/workers"
 )
 
 func main() {

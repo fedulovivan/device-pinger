@@ -37,7 +37,7 @@ func load() {
 	}
 	err := godotenv.Load(fileName)
 	if err != nil {
-		slog.Error("[MAIN] godotenv.Load()", "err", err)
+		slog.Warn("[MAIN] godotenv.Load()", "err", err)
 	} else {
 		slog.Info("[MAIN] env variables were loaded", "file", fileName)
 	}
