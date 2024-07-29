@@ -9,10 +9,14 @@ import (
 
 	"github.com/fedulovivan/device-pinger/internal/config"
 	"github.com/fedulovivan/device-pinger/internal/mqtt"
+	"github.com/fedulovivan/device-pinger/internal/utils"
 	"github.com/fedulovivan/device-pinger/internal/workers"
 )
 
 func main() {
+
+	// dump initial mem usage
+	utils.PrintMemUsage()
 
 	// get config struct
 	cfg := config.GetInstance()
@@ -38,7 +42,9 @@ func main() {
 			target,
 			mqtt.SendStatus,
 		))
+		utils.PrintMemUsage()
 	}
+	mqtt.SendStats()
 
 	// handle program interrupt
 	sc := make(chan os.Signal, 1)

@@ -35,6 +35,14 @@ docker-down:
 docker-up:
 	docker run -d --env-file=$(CONF) --name=$(NAME) $(NAME)
 
+.PHONY: docker-images
+docker-images:
+	docker images | grep $(NAME)
+
+.PHONY: docker-logs
+docker-logs:
+	docker logs --follow $(NAME)
+
 .PHONY: clean
 clean:
 	rm -f ./$(NAME)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -26,6 +27,11 @@ type SequencedResponse struct {
 
 type StatusResponse struct {
 	Status workers.OnlineStatus `json:"status"`
+}
+
+type StatsResponse struct {
+	Workers     int    `json:"workers"`
+	MemoryAlloc uint64 `json:"memoryAlloc"`
 }
 
 var client MqttLib.Client
@@ -60,18 +66,24 @@ func Init() *MqttLib.Client {
 	return &client
 }
 
-func GetTopic(target string, action string) string {
+func BuildTopic(target string, action string) string {
 	cfg := config.GetInstance()
-	return strings.Join([]string{cfg.MqttTopicBase, target, action}, "/")
+	parts := []string{cfg.MqttTopicBase}
+	if len(target) == 0 {
+		parts = append(parts, action)
+	} else {
+		parts = append(parts, target, action)
+	}
+	return strings.Join(parts, "/")
 }
 
-func Publish(target string, action string, msg any) error {
-	resString, err := json.Marshal(msg)
+func Publish(target string, action string, rsp any) error {
+	resString, err := json.Marshal(rsp)
 	if err != nil {
 		return err
 	}
 	token := client.Publish(
-		GetTopic(target, action),
+		BuildTopic(target, action),
 		0,
 		false,
 		resString,
@@ -83,21 +95,36 @@ func Publish(target string, action string, msg any) error {
 	return nil
 }
 
+func SendStats() {
+
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	rsp := StatsResponse{
+		Workers:     workers.GetCount(),
+		MemoryAlloc: m.Alloc,
+	}
+	err := Publish("", "stats", rsp)
+	if err != nil {
+		slog.Error("[MQTT]", "err", err)
+	}
+}
+
 var SendStatus workers.OnlineStatusChangeHandler = func(target string, status workers.OnlineStatus) {
-	msg := StatusResponse{status}
-	err := Publish(target, "status", msg)
+	rsp := StatusResponse{status}
+	err := Publish(target, "status", rsp)
 	if err != nil {
 		slog.Error("[MQTT]", "err", err)
 	}
 }
 
 func SendOpFeedback(req *SequencedRequest, target string, message string, isError bool) {
-	msg := SequencedResponse{
+	rsp := SequencedResponse{
 		Message: message,
 		IsError: isError,
 		Seq:     req.Seq,
 	}
-	err := Publish(target, "rsp", msg)
+	err := Publish(target, "rsp", rsp)
 	if err != nil {
 		slog.Error("[MQTT]", "err", err)
 	}
@@ -114,52 +141,70 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 
 	tt := strings.Split(topic, "/")
 
-	if len(tt) != 3 {
+	ttlen := len(tt)
+
+	if ttlen == 2 {
+
+		action := tt[1]
+
+		switch action {
+		case "get-stats":
+			SendStats()
+		}
+
+	} else if ttlen == 3 {
+
+		target := tt[1]
+		action := tt[2]
+		exist := workers.Has(target)
+
+		req := SequencedRequest{}
+		if len(msg.Payload()) > 0 && msg.Payload()[0] == 123 /* 123 = "{" */ {
+			err := json.Unmarshal(msg.Payload(), &req)
+			if err != nil {
+				slog.Error("[MQTT]", "err", err)
+			}
+		}
+
+		switch action {
+		case "get":
+			slog.Debug("[MQTT] Getting status for " + target)
+			if exist {
+				worker := workers.Get(target)
+				SendStatus(target, worker.Status())
+			} else {
+				SendOpFeedback(&req, target, "not exist", true)
+			}
+		case "add":
+			slog.Debug("[MQTT] Adding new worker for " + target)
+			if exist {
+				SendOpFeedback(&req, target, "already exist", true)
+			} else {
+				workers.Add(workers.Create(
+					target,
+					SendStatus,
+				))
+				SendOpFeedback(&req, target, "added", false)
+				SendStats()
+				utils.PrintMemUsage()
+			}
+		case "del":
+			slog.Debug("[MQTT] Deleting worker for " + target)
+			if exist {
+				workers.Delete(target, SendStatus)
+				SendOpFeedback(&req, target, "deleted", false)
+				SendStats()
+				utils.PrintMemUsage()
+			} else {
+				SendOpFeedback(&req, target, "not exist", true)
+			}
+		}
+
+	} else {
 		slog.Error("[MQTT] Unexpected topic format " + topic)
 		return
 	}
 
-	target := tt[1]
-	action := tt[2]
-	exist := workers.Has(target)
-
-	req := SequencedRequest{}
-	if len(msg.Payload()) > 0 && msg.Payload()[0] == 123 /* 123 = "{" */ {
-		err := json.Unmarshal(msg.Payload(), &req)
-		if err != nil {
-			slog.Error("[MQTT]", "err", err)
-		}
-	}
-
-	switch action {
-	case "get":
-		slog.Debug("[MQTT] Getting status for " + target)
-		if exist {
-			worker := workers.Get(target)
-			SendStatus(target, worker.Status())
-		} else {
-			SendOpFeedback(&req, target, "not exist", true)
-		}
-	case "add":
-		slog.Debug("[MQTT] Adding new worker for " + target)
-		if exist {
-			SendOpFeedback(&req, target, "already exist", true)
-		} else {
-			workers.Add(workers.Create(
-				target,
-				SendStatus,
-			))
-			SendOpFeedback(&req, target, "added", false)
-		}
-	case "del":
-		slog.Debug("[MQTT] Deleting worker for " + target)
-		if exist {
-			workers.Delete(target, SendStatus)
-			SendOpFeedback(&req, target, "deleted", false)
-		} else {
-			SendOpFeedback(&req, target, "not exist", true)
-		}
-	}
 }
 
 var connectHandler MqttLib.OnConnectHandler = func(client MqttLib.Client) {
