@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fedulovivan/device-pinger/internal/config"
 	"github.com/fedulovivan/device-pinger/internal/utils"
@@ -26,12 +27,15 @@ type SequencedResponse struct {
 }
 
 type StatusResponse struct {
-	Status workers.OnlineStatus `json:"status"`
+	Status    workers.OnlineStatus `json:"status"`
+	LastSeen  time.Time            `json:"lastSeen"`
+	UpdSource workers.UpdSource    `json:"updSource"`
 }
 
 type StatsResponse struct {
-	Workers     int    `json:"workers"`
-	MemoryAlloc uint64 `json:"memoryAlloc"`
+	Workers     int           `json:"workers"`
+	MemoryAlloc uint64        `json:"memoryAlloc"`
+	Uptime      config.Uptime `json:"uptime"`
 }
 
 var client MqttLib.Client
@@ -96,13 +100,12 @@ func Publish(target string, action string, rsp any) error {
 }
 
 func SendStats() {
-
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-
 	rsp := StatsResponse{
-		Workers:     workers.GetCount(),
 		MemoryAlloc: m.Alloc,
+		Workers:     workers.GetCount(),
+		Uptime:      config.GetUptime(),
 	}
 	err := Publish("", "stats", rsp)
 	if err != nil {
@@ -110,8 +113,17 @@ func SendStats() {
 	}
 }
 
-var SendStatus workers.OnlineStatusChangeHandler = func(target string, status workers.OnlineStatus) {
-	rsp := StatusResponse{status}
+var SendStatus workers.OnlineStatusChangeHandler = func(
+	target string,
+	status workers.OnlineStatus,
+	lastSeen time.Time,
+	updSource workers.UpdSource,
+) {
+	rsp := StatusResponse{
+		Status:    status,
+		LastSeen:  lastSeen,
+		UpdSource: updSource,
+	}
 	err := Publish(target, "status", rsp)
 	if err != nil {
 		slog.Error("[MQTT]", "err", err)
@@ -171,7 +183,7 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 			slog.Debug("[MQTT] Getting status for " + target)
 			if exist {
 				worker := workers.Get(target)
-				SendStatus(target, worker.Status())
+				SendStatus(target, worker.Status(), worker.LastSeen(), workers.UPD_SOURCE_MQTT_GET)
 			} else {
 				SendOpFeedback(&req, target, "not exist", true)
 			}

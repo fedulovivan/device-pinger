@@ -5,6 +5,7 @@ go 1.22.2
 require (
 	github.com/eclipse/paho.mqtt.golang v1.4.3
 	github.com/joho/godotenv v1.5.1
+	github.com/lmittmann/tint v1.0.5
 	github.com/prometheus-community/pro-bing v0.4.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/stretchr/testify v1.9.0

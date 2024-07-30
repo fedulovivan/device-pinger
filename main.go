@@ -6,6 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/lmittmann/tint"
 
 	"github.com/fedulovivan/device-pinger/internal/config"
 	"github.com/fedulovivan/device-pinger/internal/mqtt"
@@ -15,16 +18,30 @@ import (
 
 func main() {
 
-	// dump initial mem usage
+	// record application start time
+	config.SetStartTime()
+
+	// print initial mem usage
 	utils.PrintMemUsage()
 
-	// get config struct
+	// obtain config
 	cfg := config.GetInstance()
 
-	// update logger level from config
-	slog.SetLogLoggerLevel(cfg.LogLevel)
+	// init logger
+	if cfg.IsDev {
+		w := os.Stderr
+		slog.SetDefault(slog.New(
+			tint.NewHandler(w, &tint.Options{
+				Level:      cfg.LogLevel,
+				TimeFormat: time.TimeOnly,
+			}),
+		))
+		slog.Warn("[MAIN] Running in developlment mode")
+	} else {
+		slog.SetLogLoggerLevel(cfg.LogLevel)
+	}
 
-	// mqtt
+	// init mqtt
 	mqtt.Init()
 
 	// immediately pull and print all emitted worker errors
@@ -36,6 +53,7 @@ func main() {
 
 	// add extra wg item to keep app runnnig with zero workers
 	workers.Wg.Add(1)
+
 	// spawn workers
 	for _, target := range cfg.TargetIps {
 		workers.Add(workers.Create(
@@ -44,6 +62,8 @@ func main() {
 		))
 		utils.PrintMemUsage()
 	}
+
+	// send initial stats
 	mqtt.SendStats()
 
 	// handle program interrupt
