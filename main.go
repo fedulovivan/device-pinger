@@ -1,17 +1,14 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/lmittmann/tint"
-
-	"github.com/fedulovivan/device-pinger/internal/config"
+	_ "github.com/fedulovivan/device-pinger/internal/logger"
 	"github.com/fedulovivan/device-pinger/internal/mqtt"
+	"github.com/fedulovivan/device-pinger/internal/registry"
 	"github.com/fedulovivan/device-pinger/internal/utils"
 	"github.com/fedulovivan/device-pinger/internal/workers"
 )
@@ -19,72 +16,55 @@ import (
 func main() {
 
 	// record application start time
-	config.SetStartTime()
+	registry.RecordStartTime()
 
-	// print initial mem usage
+	// notify we are in development
+	if registry.Config.IsDev {
+		slog.Warn("[MAIN] running in developlment mode")
+	}
+
+	// print mem usage on startup
 	utils.PrintMemUsage()
 
-	// obtain config
-	cfg := config.GetInstance()
-
-	// init logger
-	if cfg.IsDev {
-		w := os.Stderr
-		slog.SetDefault(slog.New(
-			tint.NewHandler(w, &tint.Options{
-				Level:      cfg.LogLevel,
-				TimeFormat: time.TimeOnly,
-			}),
-		))
-		slog.Warn("[MAIN] Running in developlment mode")
-	} else {
-		slog.SetLogLoggerLevel(cfg.LogLevel)
-	}
-
-	// init mqtt
-	mqtt.Init()
-
-	// immediately pull and print all emitted worker errors
-	go func() {
-		for e := range workers.Errors {
-			slog.Error(e.Error())
-		}
-	}()
-
-	// add extra wg item to keep app runnnig with zero workers
-	workers.Wg.Add(1)
+	// connect to mqtt broker
+	mqttDisconnect := mqtt.Connect()
 
 	// spawn workers
-	for _, target := range cfg.TargetIps {
-		workers.Add(workers.Create(
-			target,
-			mqtt.SendStatus,
-		))
-		utils.PrintMemUsage()
+	for _, target := range registry.Config.TargetIps {
+		go func(t string) {
+			worker, err := workers.Create(
+				t,
+				mqtt.SendStatus,
+			)
+			if err == nil {
+				workers.Add(worker)
+			} else {
+				slog.Error("[MAIN] unable to create worker", "err", err.Error())
+			}
+		}(target)
 	}
 
-	// send initial stats
+	// send first update with initial stats
 	mqtt.SendStats()
 
-	// handle program interrupt
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, os.Interrupt, syscall.SIGTERM)
+	// handle shutdown
+	signals := make(chan os.Signal, 1)
+	stopped := make(chan bool)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		for range sc {
-			slog.Info(fmt.Sprintf(
-				"[MAIN] Interrupt signal captured, stopping %v worker(s)...",
-				workers.GetCount(),
-			))
-			for _, worker := range workers.GetAsList() {
-				worker.Stop(mqtt.SendStatus)
-			}
-			workers.Wg.Done()
+		for range signals {
+			stopped <- true
 		}
-		close(workers.Errors)
 	}()
+	<-stopped
+	slog.Info("[MAIN] app termination signal received")
+	workers.StopAll()
 
-	// infinetly wait for workers to complete
-	workers.Wg.Wait()
+	// wait for the all workers to complete
+	workers.Wait()
+
+	// disconnect mqtt only after stopping workers
+	mqttDisconnect()
 
 	slog.Info("[MAIN] all done, bye-bye")
 

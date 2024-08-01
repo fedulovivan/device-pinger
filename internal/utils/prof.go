@@ -21,7 +21,7 @@ func PrintMemUsage() {
 	// fmt.Printf("\tNumGC = %v\n", m.NumGC)
 
 	slog.Debug(
-		"[MAIN] Memory Usage in KiB",
+		"[MAIN] memory usage in KiB",
 		"ALLOC", bToKb(m.Alloc),
 		"TOTAL_ALLOC", bToKb(m.TotalAlloc),
 		"SYS", bToKb(m.Sys),

@@ -1,63 +1,83 @@
 package workers
 
 import (
+	"errors"
 	"log/slog"
+	"runtime"
 	"sync"
 
 	"github.com/fedulovivan/device-pinger/internal/utils"
 )
 
 var (
-	Wg          sync.WaitGroup
-	Errors      chan error
-	workers     map[string](*Worker)
-	workersLock sync.RWMutex
+	collectionWg   sync.WaitGroup
+	collection     map[string](*Worker)
+	collectionLock sync.RWMutex
 )
 
 func Add(worker *Worker) {
-	workersLock.Lock()
-	defer workersLock.Unlock()
-	if workers == nil {
-		workers = make(map[string]*Worker)
+	collectionLock.Lock()
+	defer collectionLock.Unlock()
+	if collection == nil {
+		collection = make(map[string]*Worker)
 	}
-	workers[worker.target] = worker
-	slog.Debug("[MAIN] Worker added", "size", len(workers))
+	collection[worker.target] = worker
+	slog.Debug("[MAIN] worker added", "size", len_unsafe())
+	utils.PrintMemUsage()
 }
 
-// not nil-protected, use Has in outer code before calling Get
-func Get(target string) *Worker {
-	workersLock.RLock()
-	defer workersLock.RUnlock()
-	return workers[target]
+func Get(target string) (*Worker, error) {
+	collectionLock.RLock()
+	defer collectionLock.RUnlock()
+	return get_unsafe(target)
+}
+
+func get_unsafe(target string) (*Worker, error) {
+	w, ok := collection[target]
+	if !ok {
+		return nil, errors.New("not exist")
+	}
+	return w, nil
 }
 
 func Has(target string) bool {
-	workersLock.RLock()
-	defer workersLock.RUnlock()
-	_, ok := workers[target]
+	collectionLock.RLock()
+	defer collectionLock.RUnlock()
+	_, ok := collection[target]
 	return ok
 }
 
-func Delete(target string, onChange OnlineStatusChangeHandler) {
-	workersLock.Lock()
-	defer workersLock.Unlock()
-	w, ok := workers[target]
-	if ok {
-		w.Stop(onChange)
-		delete(workers, target)
-		slog.Debug("[MAIN] Worker deleted", "size", len(workers))
+func StopAll() {
+	for _, worker := range collection {
+		go worker.Stop()
 	}
 }
 
-func GetAsList() []*Worker {
-	workersLock.RLock()
-	defer workersLock.RUnlock()
-	return utils.Values(workers)
+func Delete(target string, onChange OnlineStatusChangeHandler) error {
+	collectionLock.Lock()
+	defer collectionLock.Unlock()
+	worker, err := get_unsafe(target)
+	if err != nil {
+		return err
+	}
+	worker.Stop()
+	delete(collection, target)
+	slog.Debug("[MAIN] worker deleted", "size", len_unsafe())
+	runtime.GC()
+	utils.PrintMemUsage()
+	return nil
 }
 
-// (!) warn: do not use internally in the methods already protected by lock
-func GetCount() int {
-	workersLock.RLock()
-	defer workersLock.RUnlock()
-	return len(workers)
+func len_unsafe() int {
+	return len(collection)
+}
+
+func Len() int {
+	collectionLock.RLock()
+	defer collectionLock.RUnlock()
+	return len_unsafe()
+}
+
+func Wait() {
+	collectionWg.Wait()
 }

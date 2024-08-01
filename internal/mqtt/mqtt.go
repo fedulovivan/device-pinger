@@ -9,14 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fedulovivan/device-pinger/internal/config"
+	"github.com/fedulovivan/device-pinger/internal/registry"
 	"github.com/fedulovivan/device-pinger/internal/utils"
 	"github.com/fedulovivan/device-pinger/internal/workers"
 
 	MqttLib "github.com/eclipse/paho.mqtt.golang"
 )
 
-type SequencedRequest struct {
+type InMessage struct {
 	Seq int `json:"seq"`
 }
 
@@ -33,30 +33,23 @@ type StatusResponse struct {
 }
 
 type StatsResponse struct {
-	Workers     int           `json:"workers"`
-	MemoryAlloc uint64        `json:"memoryAlloc"`
-	Uptime      config.Uptime `json:"uptime"`
+	Workers     int             `json:"workers"`
+	MemoryAlloc uint64          `json:"memoryAlloc"`
+	Uptime      registry.Uptime `json:"uptime"`
 }
 
 var client MqttLib.Client
 
 func GetBokerString() string {
-	cfg := config.GetInstance()
-	return fmt.Sprintf("tcp://%s:%d", cfg.MqttHost, cfg.MqttPort)
+	return fmt.Sprintf("tcp://%s:%d", registry.Config.MqttHost, registry.Config.MqttPort)
 }
 
-func Shutdown() {
-	slog.Info("[MQTT] Shutdown")
-	client.Disconnect(250)
-}
-
-func Init() *MqttLib.Client {
-	cfg := config.GetInstance()
+func Connect() func() {
 	opts := MqttLib.NewClientOptions()
 	opts.AddBroker(GetBokerString())
-	opts.SetClientID(cfg.MqttClientId)
-	opts.SetUsername(cfg.MqttUsername)
-	opts.SetPassword(cfg.MqttPassword)
+	opts.SetClientID(registry.Config.MqttClientId)
+	opts.SetUsername(registry.Config.MqttUsername)
+	opts.SetPassword(registry.Config.MqttPassword)
 	opts.SetDefaultPublishHandler(defaultMessageHandler)
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
@@ -67,12 +60,14 @@ func Init() *MqttLib.Client {
 	} else {
 		subscribeAll(client)
 	}
-	return &client
+	return func() {
+		slog.Info("[MQTT] Disconnect...")
+		client.Disconnect(250)
+	}
 }
 
 func BuildTopic(target string, action string) string {
-	cfg := config.GetInstance()
-	parts := []string{cfg.MqttTopicBase}
+	parts := []string{registry.Config.MqttTopicBase}
 	if len(target) == 0 {
 		parts = append(parts, action)
 	} else {
@@ -104,8 +99,8 @@ func SendStats() {
 	runtime.ReadMemStats(&m)
 	rsp := StatsResponse{
 		MemoryAlloc: m.Alloc,
-		Workers:     workers.GetCount(),
-		Uptime:      config.GetUptime(),
+		Workers:     workers.Len(),
+		Uptime:      registry.GetUptime(),
 	}
 	err := Publish("", "stats", rsp)
 	if err != nil {
@@ -130,7 +125,7 @@ var SendStatus workers.OnlineStatusChangeHandler = func(
 	}
 }
 
-func SendOpFeedback(req *SequencedRequest, target string, message string, isError bool) {
+func SendOpFeedback(req *InMessage, target string, message string, isError bool) {
 	rsp := SequencedResponse{
 		Message: message,
 		IsError: isError,
@@ -142,7 +137,45 @@ func SendOpFeedback(req *SequencedRequest, target string, message string, isErro
 	}
 }
 
+func hadleAction(action string, target string, message *InMessage) {
+	switch action {
+	case "get-stats":
+		SendStats()
+	case "get":
+		slog.Debug("[MQTT] Getting status for " + target)
+		worker, err := workers.Get(target)
+		if err == nil {
+			SendStatus(target, worker.Status(), worker.LastSeen(), workers.UPD_SOURCE_MQTT_GET)
+		} else {
+			SendOpFeedback(message, target, err.Error(), true)
+		}
+	case "add":
+		slog.Debug("[MQTT] Adding new worker for " + target)
+		worker, err := workers.Create(
+			target,
+			SendStatus,
+		)
+		if err == nil {
+			workers.Add(worker)
+			SendOpFeedback(message, target, "added", false)
+			SendStats()
+		} else {
+			SendOpFeedback(message, target, err.Error(), true)
+		}
+	case "del":
+		slog.Debug("[MQTT] Deleting worker for " + target)
+		err := workers.Delete(target, SendStatus)
+		if err == nil {
+			SendOpFeedback(message, target, "deleted", false)
+			SendStats()
+		} else {
+			SendOpFeedback(message, target, err.Error(), true)
+		}
+	}
+}
+
 var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, msg MqttLib.Message) {
+
 	topic := msg.Topic()
 
 	slog.Debug(
@@ -155,63 +188,22 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 
 	ttlen := len(tt)
 
-	if ttlen == 2 {
+	message := InMessage{}
 
-		action := tt[1]
-
-		switch action {
-		case "get-stats":
-			SendStats()
+	if len(msg.Payload()) > 0 && msg.Payload()[0] == 123 /* 123 = "{" */ {
+		err := json.Unmarshal(msg.Payload(), &message)
+		if err != nil {
+			slog.Error("[MQTT]", "err", err)
 		}
+	}
 
+	if ttlen == 2 {
+		action := tt[1]
+		hadleAction(action, "", &message)
 	} else if ttlen == 3 {
-
 		target := tt[1]
 		action := tt[2]
-		exist := workers.Has(target)
-
-		req := SequencedRequest{}
-		if len(msg.Payload()) > 0 && msg.Payload()[0] == 123 /* 123 = "{" */ {
-			err := json.Unmarshal(msg.Payload(), &req)
-			if err != nil {
-				slog.Error("[MQTT]", "err", err)
-			}
-		}
-
-		switch action {
-		case "get":
-			slog.Debug("[MQTT] Getting status for " + target)
-			if exist {
-				worker := workers.Get(target)
-				SendStatus(target, worker.Status(), worker.LastSeen(), workers.UPD_SOURCE_MQTT_GET)
-			} else {
-				SendOpFeedback(&req, target, "not exist", true)
-			}
-		case "add":
-			slog.Debug("[MQTT] Adding new worker for " + target)
-			if exist {
-				SendOpFeedback(&req, target, "already exist", true)
-			} else {
-				workers.Add(workers.Create(
-					target,
-					SendStatus,
-				))
-				SendOpFeedback(&req, target, "added", false)
-				SendStats()
-				utils.PrintMemUsage()
-			}
-		case "del":
-			slog.Debug("[MQTT] Deleting worker for " + target)
-			if exist {
-				workers.Delete(target, SendStatus)
-				SendOpFeedback(&req, target, "deleted", false)
-				SendStats()
-				utils.PrintMemUsage()
-			} else {
-				SendOpFeedback(&req, target, "not exist", true)
-			}
-		}
-
+		hadleAction(action, target, &message)
 	} else {
 		slog.Error("[MQTT] Unexpected topic format " + topic)
 		return
@@ -236,9 +228,8 @@ func subscribe(client MqttLib.Client, topic string, wg *sync.WaitGroup) {
 }
 
 func subscribeAll(client MqttLib.Client) {
-	cfg := config.GetInstance()
 	var wg sync.WaitGroup
-	for _, topic := range []string{cfg.MqttTopicBase + "/#"} {
+	for _, topic := range []string{registry.Config.MqttTopicBase + "/#"} {
 		wg.Add(1)
 		go subscribe(client, topic, &wg)
 	}
