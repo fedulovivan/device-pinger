@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"log"
 	"log/slog"
 	"os"
 	"time"
@@ -20,5 +21,6 @@ func init() {
 		))
 	} else {
 		slog.SetLogLoggerLevel(registry.Config.LogLevel)
+		log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
 	}
 }

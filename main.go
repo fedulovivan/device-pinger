@@ -29,6 +29,9 @@ func main() {
 	// connect to mqtt broker
 	mqttDisconnect := mqtt.Connect()
 
+	// send first update with initial stats
+	mqtt.SendStats()
+
 	// spawn workers
 	for _, target := range registry.Config.TargetIps {
 		go func(t string) {
@@ -38,9 +41,6 @@ func main() {
 			}
 		}(target)
 	}
-
-	// send first update with initial stats
-	mqtt.SendStats()
 
 	// handle shutdown
 	appStopped := make(chan bool)

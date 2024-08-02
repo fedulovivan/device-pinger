@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	_ "time/tzdata"
+
 	"github.com/joho/godotenv"
 	"github.com/sethvargo/go-envconfig"
 )
@@ -40,6 +42,7 @@ type ConfigStorage struct {
 	PeriodicUpdateInterval time.Duration `env:"PERIODIC_UPDATE_INTERVAL,default=10m"`
 	LogLevel               slog.Level    `env:"LOG_LEVEL,default=debug"`
 	IsDev                  bool          `env:"DEV,default=false"`
+	Tz                     string        `env:"TZ"`
 }
 
 // use reflection to parse Config struct tags and report unexpected variables from .env file
@@ -76,6 +79,11 @@ func init() {
 	if Config.IsDev {
 		fmt.Println("all known config variables", GetExpectedEnvVars())
 	}
+	// actually tzdata does this automatically, when TZ env is set
+	// if Config.Tz != "" {
+	// 	_, err := time.LoadLocation(Config.Tz)
+	// 	fmt.Println("time.LoadLocation()", err)
+	// }
 }
 
 func RecordStartTime() {

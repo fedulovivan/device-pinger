@@ -17,6 +17,8 @@
 
 ### Completed
 
+- (+) remove timestamps from "production" logger
+- (+) handle "TZ=Europe/Moscow" in container
 - (+) add git revision to the build
 - (+) learn buffered channels - when you dont need to use channel for sync, just for async data transfer
 - (+) non unique items TARGET_IPS make application to deadlock on shutdown - collection mutex issue
