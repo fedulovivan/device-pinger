@@ -2,7 +2,6 @@ package workers
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -72,7 +71,7 @@ type Worker struct {
 func (worker *Worker) Stop() {
 	worker.lock.Lock()
 	defer worker.lock.Unlock()
-	slog.Info(worker.LogTag("Stopping..."))
+	slog.Debug(worker.LogTag("Stopping..."))
 	if worker.stopped {
 		slog.Warn(worker.LogTag("Already stopped!"))
 		return
@@ -81,7 +80,7 @@ func (worker *Worker) Stop() {
 	worker.onlineChecker.Stop()
 	worker.periodicUpdater.Stop()
 	worker.stopped = true
-	worker.updateStatus(STATUS_UNKNOWN, UPD_SOURCE_WORKER_STOP)
+	worker.update_status_unsafe(STATUS_UNKNOWN, UPD_SOURCE_WORKER_STOP)
 	slog.Info(worker.LogTag("Stopped"))
 	collectionWg.Done()
 }
@@ -98,8 +97,7 @@ func (worker *Worker) LogTag(message string) string {
 	return fmt.Sprintf("[WORKER:%v] %v", worker.target, message)
 }
 
-// (!) update is not protected by lock, which is expected to be external
-func (worker *Worker) updateStatus(status OnlineStatus, updSource UpdSource) {
+func (worker *Worker) update_status_unsafe(status OnlineStatus, updSource UpdSource) {
 	// if worker.invalid {
 	// 	slog.Error(worker.LogTag("Unexpected call of UpdateStatus() for worker in invalid status"))
 	// 	return
@@ -117,16 +115,10 @@ func (worker *Worker) updateStatus(status OnlineStatus, updSource UpdSource) {
 	}
 }
 
-func Create(
+func New(
 	target string,
 	onStatusChange OnlineStatusChangeHandler,
 ) (*Worker, error) {
-
-	if Has(target) {
-		return nil, errors.New("already exist")
-	}
-
-	collectionWg.Add(1)
 
 	// create instance
 	worker := Worker{
@@ -167,7 +159,7 @@ func Create(
 					status = STATUS_OFFLINE
 				}
 			}
-			worker.updateStatus(status, UPD_SOURCE_ONLINE_CHECKER)
+			worker.update_status_unsafe(status, UPD_SOURCE_ONLINE_CHECKER)
 			worker.lock.Unlock()
 		}
 	}()
@@ -187,7 +179,7 @@ func Create(
 		worker.lock.Lock()
 		defer worker.lock.Unlock()
 		worker.lastSeen = time.Now()
-		worker.updateStatus(STATUS_ONLINE, UPD_SOURCE_PING_ON_RECV)
+		worker.update_status_unsafe(STATUS_ONLINE, UPD_SOURCE_PING_ON_RECV)
 	}
 
 	go func() {

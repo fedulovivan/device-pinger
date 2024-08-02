@@ -20,7 +20,7 @@ func main() {
 
 	// notify we are in development
 	if registry.Config.IsDev {
-		slog.Warn("[MAIN] running in developlment mode")
+		slog.Info("[MAIN] running in developlment mode")
 	}
 
 	// print mem usage on startup
@@ -32,13 +32,8 @@ func main() {
 	// spawn workers
 	for _, target := range registry.Config.TargetIps {
 		go func(t string) {
-			worker, err := workers.Create(
-				t,
-				mqtt.SendStatus,
-			)
-			if err == nil {
-				workers.Add(worker)
-			} else {
+			_, err := workers.Create(t, mqtt.SendStatus)
+			if err != nil {
 				slog.Error("[MAIN] unable to create worker", "err", err.Error())
 			}
 		}(target)
@@ -48,19 +43,20 @@ func main() {
 	mqtt.SendStats()
 
 	// handle shutdown
-	signals := make(chan os.Signal, 1)
-	stopped := make(chan bool)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	appStopped := make(chan bool)
+	signalsCh := make(chan os.Signal, 1)
+	signal.Notify(signalsCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		for range signals {
-			stopped <- true
+		for range signalsCh {
+			appStopped <- true
 		}
 	}()
-	<-stopped
-	slog.Info("[MAIN] app termination signal received")
+	<-appStopped
+	slog.Debug("[MAIN] app termination signal received")
 	workers.StopAll()
 
 	// wait for the all workers to complete
+	slog.Debug("[MAIN] waiting for the all workers to complete")
 	workers.Wait()
 
 	// disconnect mqtt only after stopping workers

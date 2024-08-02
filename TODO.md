@@ -1,7 +1,6 @@
 ### Pending Prio 0
 
-- non unique items TARGET_IPS make application to hand on shutdown (collectionWg issue?)
-- learn buffered channels
+- check mhx19-next TODOs
 - learn which approach to use when we need to create several instances of pinger and spread "load"?
 - poor performace - 10 workers consume 4mb ram and 4% cpu, try Pinger instance polling?
 - no retries after "Failed to complete pinger.Run()" worker is already marked as invalid and wont notice if device will return back online
@@ -19,6 +18,8 @@
 
 ### Completed
 
+- (+) learn buffered channels - when you dont need to use channel for sync, just for async data transfer
+- (+) non unique items TARGET_IPS make application to deadlock on shutdown - collection mutex issue
 - (+) add errors to workers Add, Get, Delete, Create
 - (+) use context to handle workers and application shutdown - tried, it brings more problems
 - (+) rewrite packages to use init()

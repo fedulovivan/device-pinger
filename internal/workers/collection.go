@@ -15,9 +15,7 @@ var (
 	collectionLock sync.RWMutex
 )
 
-func Add(worker *Worker) {
-	collectionLock.Lock()
-	defer collectionLock.Unlock()
+func add_unsafe(worker *Worker) {
 	if collection == nil {
 		collection = make(map[string]*Worker)
 	}
@@ -40,17 +38,26 @@ func get_unsafe(target string) (*Worker, error) {
 	return w, nil
 }
 
-func Has(target string) bool {
-	collectionLock.RLock()
-	defer collectionLock.RUnlock()
-	_, ok := collection[target]
-	return ok
-}
-
 func StopAll() {
 	for _, worker := range collection {
 		go worker.Stop()
 	}
+}
+
+func Create(
+	target string,
+	onStatusChange OnlineStatusChangeHandler,
+) (*Worker, error) {
+	collectionLock.Lock()
+	defer collectionLock.Unlock()
+	_, ok := collection[target]
+	if ok {
+		return nil, errors.New("already exist")
+	}
+	w, _ := New(target, onStatusChange)
+	collectionWg.Add(1)
+	add_unsafe(w)
+	return w, nil
 }
 
 func Delete(target string, onChange OnlineStatusChangeHandler) error {
@@ -68,6 +75,10 @@ func Delete(target string, onChange OnlineStatusChangeHandler) error {
 	return nil
 }
 
+func Wait() {
+	collectionWg.Wait()
+}
+
 func len_unsafe() int {
 	return len(collection)
 }
@@ -76,8 +87,4 @@ func Len() int {
 	collectionLock.RLock()
 	defer collectionLock.RUnlock()
 	return len_unsafe()
-}
-
-func Wait() {
-	collectionWg.Wait()
 }

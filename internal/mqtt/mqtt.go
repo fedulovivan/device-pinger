@@ -54,14 +54,14 @@ func Connect() func() {
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
 	client = MqttLib.NewClient(opts)
-	slog.Info("[MQTT] Connecting...")
+	slog.Debug("[MQTT] Connecting...")
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		slog.Error("[MQTT]", "error", token.Error())
 	} else {
 		subscribeAll(client)
 	}
 	return func() {
-		slog.Info("[MQTT] Disconnect...")
+		slog.Debug("[MQTT] Disconnect...")
 		client.Disconnect(250)
 	}
 }
@@ -151,12 +151,11 @@ func hadleAction(action string, target string, message *InMessage) {
 		}
 	case "add":
 		slog.Debug("[MQTT] Adding new worker for " + target)
-		worker, err := workers.Create(
+		_, err := workers.Create(
 			target,
 			SendStatus,
 		)
 		if err == nil {
-			workers.Add(worker)
 			SendOpFeedback(message, target, "added", false)
 			SendStats()
 		} else {
@@ -234,5 +233,5 @@ func subscribeAll(client MqttLib.Client) {
 		go subscribe(client, topic, &wg)
 	}
 	wg.Wait()
-	slog.Info("[MQTT] All subscribtions are settled")
+	slog.Debug("[MQTT] All subscribtions are settled")
 }
