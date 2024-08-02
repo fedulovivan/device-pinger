@@ -9,7 +9,6 @@
   
 ### Pending Prio 1
 
-- add version number to the build
 - check for leaks - no nemory release after deleting workers, released with some delay (deferred GC? try runtime.GC())
 - add some basic telemetry and configure graphana
 - find root cause of the unreasonable docker image size growth from 7.7mb to 8.4mb
@@ -18,6 +17,7 @@
 
 ### Completed
 
+- (+) add git revision to the build
 - (+) learn buffered channels - when you dont need to use channel for sync, just for async data transfer
 - (+) non unique items TARGET_IPS make application to deadlock on shutdown - collection mutex issue
 - (+) add errors to workers Add, Get, Delete, Create

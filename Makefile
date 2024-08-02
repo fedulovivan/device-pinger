@@ -1,5 +1,6 @@
 CONF ?= .env
 NAME ?= device-pinger
+GIT_REV ?= $(shell git rev-parse --short HEAD)
 
 default: build
 
@@ -25,7 +26,7 @@ test:
 
 .PHONY: docker-build
 docker-build:
-	DOCKER_CLI_HINTS=false docker build --tag $(NAME) .
+	DOCKER_CLI_HINTS=false docker build --label "git.revision=${GIT_REV}" --tag $(NAME) .
 
 .PHONY: docker-down
 docker-down:
