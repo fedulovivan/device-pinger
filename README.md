@@ -4,7 +4,8 @@ Application performs a ping of given ip adresses and report target online/offlin
 
 ### Alternatives
 
-There is a similar, but looking abandoned, project based on bluetooth https://github.com/andrewjfreyer/monitor. Unfortunately, I was not able to make it running on old hardware, which is MacMini 2010 Sever in my case (used as home automation server).
+- There is a similar, but looking abandoned, project based on bluetooth https://github.com/andrewjfreyer/monitor. Unfortunately, I was not able to make it running on old hardware, which is MacMini 2010 Sever in my case (used as home automation server).
+- https://espresense.com/ - another not tested but looking more comprehencive alternative, which requires additional hardware and its flashing (esp32) is  project.
 
 ### Mqtt Api
 

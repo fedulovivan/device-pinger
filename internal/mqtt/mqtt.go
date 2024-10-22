@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fedulovivan/device-pinger/internal/counters"
 	"github.com/fedulovivan/device-pinger/internal/registry"
 	"github.com/fedulovivan/device-pinger/internal/utils"
 	"github.com/fedulovivan/device-pinger/internal/workers"
@@ -56,6 +57,7 @@ func Connect() func() {
 	client = MqttLib.NewClient(opts)
 	slog.Debug("[MQTT] Connecting...")
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		counters.Errors.Inc()
 		slog.Error("[MQTT]", "error", token.Error())
 	} else {
 		subscribeAll(client)
@@ -104,6 +106,7 @@ func SendStats() {
 	}
 	err := Publish("", "stats", rsp)
 	if err != nil {
+		counters.Errors.Inc()
 		slog.Error("[MQTT]", "err", err)
 	}
 }
@@ -121,6 +124,7 @@ var SendStatus workers.OnlineStatusChangeHandler = func(
 	}
 	err := Publish(target, "status", rsp)
 	if err != nil {
+		counters.Errors.Inc()
 		slog.Error("[MQTT]", "err", err)
 	}
 }
@@ -133,6 +137,7 @@ func SendOpFeedback(req *InMessage, target string, message string, isError bool)
 	}
 	err := Publish(target, "rsp", rsp)
 	if err != nil {
+		counters.Errors.Inc()
 		slog.Error("[MQTT]", "err", err)
 	}
 }
@@ -192,9 +197,12 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 	if len(msg.Payload()) > 0 && msg.Payload()[0] == 123 /* 123 = "{" */ {
 		err := json.Unmarshal(msg.Payload(), &message)
 		if err != nil {
+			counters.Errors.Inc()
 			slog.Error("[MQTT]", "err", err)
 		}
 	}
+
+	counters.ApiRequests.WithLabelValues(topic).Inc()
 
 	if ttlen == 2 {
 		action := tt[1]
@@ -204,6 +212,7 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 		action := tt[2]
 		hadleAction(action, target, &message)
 	} else {
+		counters.Errors.Inc()
 		slog.Error("[MQTT] Unexpected topic format " + topic)
 		return
 	}
@@ -215,12 +224,14 @@ var connectHandler MqttLib.OnConnectHandler = func(client MqttLib.Client) {
 }
 
 var connectLostHandler MqttLib.ConnectionLostHandler = func(client MqttLib.Client, err error) {
+	counters.Errors.Inc()
 	slog.Error("[MQTT] Connection lost", "err", err)
 }
 
 func subscribe(client MqttLib.Client, topic string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if token := client.Subscribe(topic, 0, nil); token.Wait() && token.Error() != nil {
+		counters.Errors.Inc()
 		slog.Error("[MQTT] client.Subscribe()", "err", token.Error())
 	}
 	slog.Info("[MQTT] Subscribed", "topic", topic)

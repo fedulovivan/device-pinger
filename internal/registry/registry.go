@@ -11,6 +11,7 @@ import (
 
 	_ "time/tzdata"
 
+	"github.com/fedulovivan/device-pinger/internal/counters"
 	"github.com/joho/godotenv"
 	"github.com/sethvargo/go-envconfig"
 )
@@ -43,6 +44,7 @@ type ConfigStorage struct {
 	LogLevel               slog.Level    `env:"LOG_LEVEL,default=debug"`
 	IsDev                  bool          `env:"DEV,default=false"`
 	Tz                     string        `env:"TZ"`
+	PrometheusPort         int           `env:"PROMETHEUS_PORT,default=2112"`
 }
 
 // use reflection to parse Config struct tags and report unexpected variables from .env file
@@ -90,7 +92,13 @@ func RecordStartTime() {
 	if !startTime.IsZero() {
 		panic("expected to be called only once")
 	}
-	startTime = time.Now()
+	ticker := time.NewTicker(time.Second) // update metric each second
+	go func() {
+		startTime = time.Now()
+		for range ticker.C {
+			counters.Uptime.Set(time.Since(startTime).Seconds())
+		}
+	}()
 }
 
 func GetUptime() Uptime {

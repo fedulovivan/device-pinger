@@ -3,10 +3,9 @@ package workers
 import (
 	"errors"
 	"log/slog"
-	"runtime"
 	"sync"
 
-	"github.com/fedulovivan/device-pinger/internal/utils"
+	"github.com/fedulovivan/device-pinger/internal/counters"
 )
 
 var (
@@ -21,7 +20,7 @@ func add_unsafe(worker *Worker) {
 	}
 	collection[worker.target] = worker
 	slog.Debug("[MAIN] worker added", "size", len_unsafe())
-	utils.PrintMemUsage()
+	// utils.PrintMemUsage()
 }
 
 func Get(target string) (*Worker, error) {
@@ -57,6 +56,7 @@ func Create(
 	w, _ := New(target, onStatusChange)
 	collectionWg.Add(1)
 	add_unsafe(w)
+	counters.Workers.Inc()
 	return w, nil
 }
 
@@ -70,8 +70,8 @@ func Delete(target string, onChange OnlineStatusChangeHandler) error {
 	worker.Stop()
 	delete(collection, target)
 	slog.Debug("[MAIN] worker deleted", "size", len_unsafe())
-	runtime.GC()
-	utils.PrintMemUsage()
+	// utils.PrintMemUsage()
+	counters.Workers.Dec()
 	return nil
 }
 

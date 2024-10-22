@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fedulovivan/device-pinger/internal/counters"
 	"github.com/fedulovivan/device-pinger/internal/registry"
 	probing "github.com/prometheus-community/pro-bing"
 )
@@ -136,6 +137,7 @@ func New(
 	var err error
 	worker.pinger, err = probing.NewPinger(target)
 	if err != nil {
+		counters.Errors.Inc()
 		slog.Error(worker.LogTag("Failed to complete probing.NewPinger()"), "err", err)
 		worker.invalid = true
 		// worker.status = STATUS_INVALID
@@ -184,10 +186,12 @@ func New(
 
 	go func() {
 		if worker.invalid {
+			counters.Errors.Inc()
 			slog.Error(worker.LogTag("Cannot run pinger since worker already marked as invalid"))
 		} else {
 			err = worker.pinger.Run() /* RunWithContext */
 			if err != nil {
+				counters.Errors.Inc()
 				slog.Error(worker.LogTag("Failed to complete pinger.Run()"), "err", err)
 				worker.invalid = true
 				// worker.status = STATUS_INVALID

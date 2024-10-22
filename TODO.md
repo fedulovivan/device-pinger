@@ -1,11 +1,13 @@
 ### Pending Prio 0
 
-- check mhx19-next TODOs
-- learn which approach to use when we need to create several instances of pinger and spread "load"?
+- check mhx19-next TODOs - store device names and mappings in db
 - poor performace - 10 workers consume 4mb ram and 4% cpu, try Pinger instance polling?
 - no retries after "Failed to complete pinger.Run()" worker is already marked as invalid and wont notice if device will return back online
 - finish implementation for STATUS_INVALID
 - frequent "ERROR [MQTT] err="not Connected"" right after compose stack up
+- for the http://macmini:8888/last-device-messages/192.168.88.44 align timestamp in "message.lastSeen" to match "timestamp"
+- no new mqtt messages after mqtt disconnect/autoreconnect (`Connection lost error="pingresp not received, disconnecting"` and later `Connected broker=tcp://macmini:1883`) + same issue for device-pinger which impacts its service
+- Some weird behavior after 5d uptime, no updates are sent, however mqtt api is alive (del/add/get-stats are working) - need doublecheck, looks everything is ok, on 22 Oct after 1month of uptime do not observe feedback on any api call
   
 ### Pending Prio 1
 
@@ -17,6 +19,7 @@
 
 ### Completed
 
+- (+) learn which approach to use when we need to create several instances of pinger and spread "load" - introduce common storage with all ips with need to ping. eg redis. each app lock the ips pool, marks its slice, releases the lock
 - (+) remove timestamps from "production" logger
 - (+) handle "TZ=Europe/Moscow" in container
 - (+) add git revision to the build

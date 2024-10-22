@@ -1,16 +1,21 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"net/http"
+
+	"github.com/fedulovivan/device-pinger/internal/counters"
 	_ "github.com/fedulovivan/device-pinger/internal/logger"
 	"github.com/fedulovivan/device-pinger/internal/mqtt"
 	"github.com/fedulovivan/device-pinger/internal/registry"
 	"github.com/fedulovivan/device-pinger/internal/utils"
 	"github.com/fedulovivan/device-pinger/internal/workers"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -37,10 +42,15 @@ func main() {
 		go func(t string) {
 			_, err := workers.Create(t, mqtt.SendStatus)
 			if err != nil {
+				counters.Errors.Inc()
 				slog.Error("[MAIN] unable to create worker", "err", err.Error())
 			}
 		}(target)
 	}
+
+	// prometheus
+	http.Handle("/metrics", promhttp.Handler())
+	_ = http.ListenAndServe(fmt.Sprintf(":%d", registry.Config.PrometheusPort), nil)
 
 	// handle shutdown
 	appStopped := make(chan bool)
