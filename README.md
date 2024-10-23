@@ -4,18 +4,20 @@ Application performs a ping of given ip adresses and report target online/offlin
 
 ### Alternatives
 
-- There is a similar, but looking abandoned, project based on bluetooth https://github.com/andrewjfreyer/monitor. Unfortunately, I was not able to make it running on old hardware, which is MacMini 2010 Sever in my case (used as home automation server).
-- https://espresense.com/ - another not tested but looking more comprehencive alternative, which requires additional hardware and its flashing (esp32) is  project.
+- There is a similar, but looking abandoned, project based on bluetooth https://github.com/andrewjfreyer/monitor. Unfortunately, I was not able to make it running on old hardware, which is MacMini 2010 in my case (running ubuntu linux and used as home automation server).
+- https://espresense.com/ - another not tested, but looking more comprehencive alternative, which requires additional hardware (esp32 microcontroller board) and its flashing.
 
 ### Mqtt Api
 
-- To receive statuses - subscribe to `device-pinger/<ip>/status` or wildcard `device-pinger/+/status`, payload would be `{"status":<status>}`, with 3 possible **status** numeric values: -1 for UNKNOWN, 1 for ONLINE and 0 for OFFLINE
-- Add new IP to monitor - publish to `device-pinger/<ip>/add` with either empty payload or json `{"seq":<number>}` to track operation result, which will be published to `device-pinger/<ip>/rsp`
+- To receive statuses - subscribe to `device-pinger/<ip>/status` or wildcard `device-pinger/+/status`, payload would be a json `{"status":<status>}`, with 3 possible **status** numeric values: -1 - UNKNOWN, 0 - OFFLINE and 1 - ONLINE
+- Add new IP to monitor - publish to `device-pinger/<ip>/add` with empty payload or json `{"seq":<number>}` if request/response should be correlated. Operation result will be published to `device-pinger/<ip>/rsp`
 - Delete IP from monitoring - publish to `device-pinger/<ip>/del` (same payload format as for **add**)
+- Force request status - publish anything to `device-pinger/<ip>/get`
+- REquest application stats - publish anything to `device-pinger/get-stats`
 
 ### Configuration
 
-Configuration is set via environment variables or from .env files. There are several options: 
+Configuration is set via environment variables or from .env file. There are several options: 
 1. use `make docker-up` to load default .env file; 
 1. use `CONF=.env.sample make docker-up` to run with selected file;
 1. load envs with [docker-compose](https://github.com/fedulovivan/mhz19-next/blob/master/docker-compose.yaml) form some common config like in [.env.sample](https://github.com/fedulovivan/mhz19-next/blob/master/.env.sample) in my case;
@@ -23,10 +25,9 @@ Configuration is set via environment variables or from .env files. There are sev
 
 # Development
 
-`make run` or `make && ./device-pinger` to compile and start app with default config **.evn**
+`make run` or `make && ./device-pinger` to compile and start app with default config **.env**
 or you can set any other config with `CONF=.env.bak make run`
-
-grasp metrics in cli `curl -s http://localhost:2112/metrics | grep "pinger" | grep -v "#"`
+evaluate prometheus metrics in cli `curl -s http://localhost:2112/metrics | grep "pinger" | grep -v "#"`
 
 ### Production
 
@@ -36,8 +37,10 @@ grasp metrics in cli `curl -s http://localhost:2112/metrics | grep "pinger" | gr
 
 ### Screenshots
 
+Dashboard
+![dashboard](assets/04-dashboard.png)
 Console
-![console.png](assets/02-console.png)
+![console.png](assets/05-console.png)
 MQTT Explorer
 ![mqtt-explorer.png](assets/01-mqtt-explorer.png) 
 Image size
