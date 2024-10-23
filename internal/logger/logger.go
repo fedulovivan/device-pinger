@@ -7,7 +7,14 @@ import (
 	"time"
 
 	"github.com/fedulovivan/device-pinger/internal/registry"
+	"github.com/fedulovivan/mhz19-go/pkg/utils"
 	"github.com/lmittmann/tint"
+)
+
+const (
+	TAG_MAIN utils.TagName = "[main   ]"
+	TAG_MQTT utils.TagName = "[mqtt   ]"
+	TAG_WRKR utils.TagName = "[worker ]"
 )
 
 func init() {

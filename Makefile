@@ -4,46 +4,38 @@ GIT_REV ?= $(shell git rev-parse --short HEAD)
 
 default: build
 
-.PHONY: build
 build: lint test
 	CGO_ENABLED=0 go build -o $(NAME)
 
-.PHONY: run
-run:
+run-norace:
 	go run .
 
-.PHONY: tidy
+run:
+	GORACE="halt_on_error=1" go run -race .
+
 tidy:
 	go mod tidy
 
-.PHONY: lint
 lint:
 	golangci-lint run
 
-.PHONY: test
 test:
 	go test -cover -race -count 1 ./...
 
-.PHONY: docker-build
 docker-build:
 	DOCKER_CLI_HINTS=false docker build --label "git.revision=${GIT_REV}" --tag $(NAME) .
 
-.PHONY: docker-down
 docker-down:
 	docker stop $(NAME) && docker rm $(NAME)
 
-.PHONY: docker-up
 docker-up:
-	docker run -d --env-file=$(CONF) --name=$(NAME) $(NAME)
+	docker run -d --env-file=$(CONF) -p 2112:2112 --name=$(NAME) $(NAME)
 
-.PHONY: docker-images
 docker-images:
 	docker images | grep $(NAME)
 
-.PHONY: docker-logs
 docker-logs:
 	docker logs --follow $(NAME)
 
-.PHONY: clean
 clean:
 	rm -f ./$(NAME)

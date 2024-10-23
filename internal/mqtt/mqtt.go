@@ -10,12 +10,18 @@ import (
 	"time"
 
 	"github.com/fedulovivan/device-pinger/internal/counters"
+	"github.com/fedulovivan/device-pinger/internal/logger"
 	"github.com/fedulovivan/device-pinger/internal/registry"
-	"github.com/fedulovivan/device-pinger/internal/utils"
+	utils_local "github.com/fedulovivan/device-pinger/internal/utils"
 	"github.com/fedulovivan/device-pinger/internal/workers"
+	"github.com/fedulovivan/mhz19-go/pkg/utils"
 
 	MqttLib "github.com/eclipse/paho.mqtt.golang"
 )
+
+var LBRACKET = byte('{')
+
+var tagBase = utils.NewTag(logger.TAG_MQTT)
 
 type InMessage struct {
 	Seq int `json:"seq"`
@@ -55,15 +61,15 @@ func Connect() func() {
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = connectLostHandler
 	client = MqttLib.NewClient(opts)
-	slog.Debug("[MQTT] Connecting...")
+	slog.Debug(tagBase.F("Connecting..."))
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		counters.Errors.Inc()
-		slog.Error("[MQTT]", "error", token.Error())
+		slog.Error(tagBase.F("Error"), "error", token.Error())
 	} else {
 		subscribeAll(client)
 	}
 	return func() {
-		slog.Debug("[MQTT] Disconnect...")
+		slog.Debug(tagBase.F("Disconnect..."))
 		client.Disconnect(250)
 	}
 }
@@ -78,21 +84,24 @@ func BuildTopic(target string, action string) string {
 	return strings.Join(parts, "/")
 }
 
-func Publish(target string, action string, rsp any) error {
-	resString, err := json.Marshal(rsp)
+func Publish(target string, action string, rsp any /* , tagext utils.Tag */) error {
+	payload, err := json.Marshal(rsp)
 	if err != nil {
 		return err
 	}
+	topic := BuildTopic(target, action)
 	token := client.Publish(
-		BuildTopic(target, action),
+		topic,
 		0,
 		false,
-		resString,
+		payload,
 	)
 	token.Wait()
 	if token.Error() != nil {
 		return token.Error()
 	}
+	slog.Debug(tagBase.F("Published"), "topic", topic, "payload", string(payload))
+	counters.MqttPublished.Inc()
 	return nil
 }
 
@@ -104,10 +113,10 @@ func SendStats() {
 		Workers:     workers.Len(),
 		Uptime:      registry.GetUptime(),
 	}
-	err := Publish("", "stats", rsp)
+	err := Publish("", "stats", rsp /* , tagBase */)
 	if err != nil {
 		counters.Errors.Inc()
-		slog.Error("[MQTT]", "err", err)
+		slog.Error(tagBase.F("Error"), "err", err)
 	}
 }
 
@@ -116,76 +125,96 @@ var SendStatus workers.OnlineStatusChangeHandler = func(
 	status workers.OnlineStatus,
 	lastSeen time.Time,
 	updSource workers.UpdSource,
+	// tag utils.Tag,
 ) {
 	rsp := StatusResponse{
 		Status:    status,
 		LastSeen:  lastSeen,
 		UpdSource: updSource,
 	}
-	err := Publish(target, "status", rsp)
+	err := Publish(target, "status", rsp /* , tag */)
 	if err != nil {
 		counters.Errors.Inc()
-		slog.Error("[MQTT]", "err", err)
+		slog.Error(tagBase.F("Error"), "err", err)
 	}
 }
 
-func SendOpFeedback(req *InMessage, target string, message string, isError bool) {
+func SendOpFeedback(req *InMessage, target string, message string, isError bool /* , tag utils.Tag */) {
 	rsp := SequencedResponse{
 		Message: message,
 		IsError: isError,
 		Seq:     req.Seq,
 	}
-	err := Publish(target, "rsp", rsp)
+	if isError {
+		counters.Errors.Inc()
+		slog.Error(tagBase.F("Error"), "err", message)
+	}
+	err := Publish(target, "rsp", rsp /* , tag */)
 	if err != nil {
 		counters.Errors.Inc()
-		slog.Error("[MQTT]", "err", err)
+		slog.Error(tagBase.F("Error"), "err", err)
 	}
 }
 
-func hadleAction(action string, target string, message *InMessage) {
+func handleAction(action string, target string, message *InMessage) {
+	handled := false
 	switch action {
 	case "get-stats":
 		SendStats()
+		handled = true
 	case "get":
-		slog.Debug("[MQTT] Getting status for " + target)
+		slog.Debug(tagBase.F("Getting status for %v", target))
 		worker, err := workers.Get(target)
 		if err == nil {
-			SendStatus(target, worker.Status(), worker.LastSeen(), workers.UPD_SOURCE_MQTT_GET)
+			SendStatus(target, worker.Status(), worker.LastSeen(), workers.UPD_SOURCE_MQTT_GET /* , worker.Tag() */)
+			handled = true
 		} else {
-			SendOpFeedback(message, target, err.Error(), true)
+			SendOpFeedback(message, target, err.Error(), true /* , worker.Tag() */)
 		}
 	case "add":
-		slog.Debug("[MQTT] Adding new worker for " + target)
+		slog.Debug(tagBase.F("Adding new worker for %v", target))
 		_, err := workers.Create(
 			target,
 			SendStatus,
 		)
 		if err == nil {
-			SendOpFeedback(message, target, "added", false)
+			SendOpFeedback(message, target, "added", false /* , tagBase */)
 			SendStats()
+			handled = true
 		} else {
-			SendOpFeedback(message, target, err.Error(), true)
+			SendOpFeedback(message, target, err.Error(), true /* , tagBase */)
 		}
 	case "del":
-		slog.Debug("[MQTT] Deleting worker for " + target)
+		slog.Debug(tagBase.F("Deleting worker for %v", target))
 		err := workers.Delete(target, SendStatus)
 		if err == nil {
-			SendOpFeedback(message, target, "deleted", false)
+			SendOpFeedback(message, target, "deleted", false /* , tagBase */)
 			SendStats()
+			handled = true
 		} else {
-			SendOpFeedback(message, target, err.Error(), true)
+			SendOpFeedback(message, target, err.Error(), true /* , tagBase */)
 		}
+	}
+	if handled {
+		counters.ActionsHandled.WithLabelValues(action, target).Inc()
 	}
 }
 
 var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, msg MqttLib.Message) {
 
+	counters.MqttReceived.Inc()
+
 	topic := msg.Topic()
 
+	// fmt.Println( /* string(msg.Payload()) */ `"foo"`)
+	// slog.Debug(`"foo"`, "foo", `"foo"`)
+	// fmt.Println(fmt.Sprint(string(msg.Payload())))
+	// "foo".MarshalText()
+
 	slog.Debug(
-		"[MQTT]",
-		"TOPIC", topic,
-		"MESSAGE", utils.Truncate(string(msg.Payload()), 80),
+		tagBase.F("Received"),
+		"topic", topic,
+		"payload", utils_local.Truncate(string(msg.Payload()), 80),
 	)
 
 	tt := strings.Split(topic, "/")
@@ -194,55 +223,61 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 
 	message := InMessage{}
 
-	if len(msg.Payload()) > 0 && msg.Payload()[0] == 123 /* 123 = "{" */ {
+	if len(msg.Payload()) > 0 && msg.Payload()[0] == LBRACKET {
 		err := json.Unmarshal(msg.Payload(), &message)
 		if err != nil {
 			counters.Errors.Inc()
-			slog.Error("[MQTT]", "err", err)
+			slog.Error(tagBase.F("Error"), "err", err)
 		}
 	}
 
-	counters.ApiRequests.WithLabelValues(topic).Inc()
-
 	if ttlen == 2 {
 		action := tt[1]
-		hadleAction(action, "", &message)
+		handleAction(action, "", &message)
 	} else if ttlen == 3 {
 		target := tt[1]
 		action := tt[2]
-		hadleAction(action, target, &message)
+		handleAction(action, target, &message)
 	} else {
 		counters.Errors.Inc()
-		slog.Error("[MQTT] Unexpected topic format " + topic)
+		slog.Error(tagBase.F("Unexpected topic format %v", topic))
 		return
 	}
 
 }
 
 var connectHandler MqttLib.OnConnectHandler = func(client MqttLib.Client) {
-	slog.Info("[MQTT] Connected", "broker", GetBokerString())
+	slog.Info(tagBase.F("Connected"), "broker", GetBokerString())
 }
 
 var connectLostHandler MqttLib.ConnectionLostHandler = func(client MqttLib.Client, err error) {
 	counters.Errors.Inc()
-	slog.Error("[MQTT] Connection lost", "err", err)
+	slog.Error(tagBase.F("Connection lost"), "err", err)
 }
 
 func subscribe(client MqttLib.Client, topic string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if token := client.Subscribe(topic, 0, nil); token.Wait() && token.Error() != nil {
 		counters.Errors.Inc()
-		slog.Error("[MQTT] client.Subscribe()", "err", token.Error())
+		slog.Error(tagBase.F("client.Subscribe()"), "err", token.Error())
 	}
-	slog.Info("[MQTT] Subscribed", "topic", topic)
+	slog.Info(tagBase.F("Subscribed"), "topic", topic)
 }
 
 func subscribeAll(client MqttLib.Client) {
 	var wg sync.WaitGroup
-	for _, topic := range []string{registry.Config.MqttTopicBase + "/#"} {
+
+	topics := []string{
+		fmt.Sprintf("%s/get-stats", registry.Config.MqttTopicBase),
+		fmt.Sprintf("%s/+/add", registry.Config.MqttTopicBase),
+		fmt.Sprintf("%s/+/get", registry.Config.MqttTopicBase),
+		fmt.Sprintf("%s/+/del", registry.Config.MqttTopicBase),
+	}
+
+	for _, topic := range topics {
 		wg.Add(1)
 		go subscribe(client, topic, &wg)
 	}
 	wg.Wait()
-	slog.Debug("[MQTT] All subscribtions are settled")
+	slog.Debug(tagBase.F("All subscribtions are settled"))
 }

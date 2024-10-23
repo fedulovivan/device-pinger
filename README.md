@@ -26,6 +26,8 @@ Configuration is set via environment variables or from .env files. There are sev
 `make run` or `make && ./device-pinger` to compile and start app with default config **.evn**
 or you can set any other config with `CONF=.env.bak make run`
 
+grasp metrics in cli `curl -s http://localhost:2112/metrics | grep "pinger" | grep -v "#"`
+
 ### Production
 
 - build image with `make docker-build`

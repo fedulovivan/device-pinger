@@ -1,15 +1,16 @@
 package workers
 
 import (
-	"fmt"
 	"log/slog"
 	"net"
 	"strings"
+
+	"github.com/fedulovivan/mhz19-go/pkg/utils"
 )
 
 type WorkerLogger struct {
 	Logger *slog.Logger
-	target string
+	tag    utils.Tag
 }
 
 func (l WorkerLogger) Fatalf(format string, v ...interface{}) {
@@ -31,21 +32,21 @@ func (l WorkerLogger) Fatalf(format string, v ...interface{}) {
 		}
 	}
 
-	l.Logger.Error(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
+	l.Logger.Error(l.tag.F(format, v...))
 }
 
 func (l WorkerLogger) Errorf(format string, v ...interface{}) {
-	l.Logger.Error(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
+	l.Logger.Error(l.tag.F(format, v...))
 }
 
 func (l WorkerLogger) Warnf(format string, v ...interface{}) {
-	l.Logger.Warn(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
+	l.Logger.Warn(l.tag.F(format, v...))
 }
 
 func (l WorkerLogger) Infof(format string, v ...interface{}) {
-	l.Logger.Info(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
+	l.Logger.Info(l.tag.F(format, v...))
 }
 
 func (l WorkerLogger) Debugf(format string, v ...interface{}) {
-	l.Logger.Debug(fmt.Sprintf("[WORKER:"+l.target+"] "+format, v...))
+	l.Logger.Debug(l.tag.F(format, v...))
 }

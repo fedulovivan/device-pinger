@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/fedulovivan/device-pinger/internal/counters"
+	"github.com/fedulovivan/device-pinger/internal/logger"
 	"github.com/fedulovivan/device-pinger/internal/registry"
+	"github.com/fedulovivan/mhz19-go/pkg/utils"
 	probing "github.com/prometheus-community/pro-bing"
 )
 
@@ -26,9 +28,16 @@ var STATUS_NAMES = map[OnlineStatus]string{
 	STATUS_ONLINE:  "online",
 }
 
+var tagBase = utils.NewTag(logger.TAG_WRKR)
+
 type OnlineStatus int8
 
-type OnlineStatusChangeHandler func(target string, status OnlineStatus, lastSeen time.Time, updSource UpdSource)
+type OnlineStatusChangeHandler func(
+	target string,
+	status OnlineStatus,
+	lastSeen time.Time,
+	updSource UpdSource,
+)
 
 type UpdSource byte
 
@@ -57,6 +66,7 @@ var UPD_SOURCE_NAMES = map[UpdSource]string{
 }
 
 type Worker struct {
+	sync.Mutex
 	onStatusChange  OnlineStatusChangeHandler
 	target          string
 	pinger          *probing.Pinger
@@ -64,17 +74,21 @@ type Worker struct {
 	lastSeen        time.Time
 	onlineChecker   *time.Ticker
 	periodicUpdater *time.Ticker
-	lock            sync.Mutex
 	stopped         bool
 	invalid         bool
+	tag             utils.Tag
+}
+
+func (worker *Worker) Tag() utils.Tag {
+	return worker.tag
 }
 
 func (worker *Worker) Stop() {
-	worker.lock.Lock()
-	defer worker.lock.Unlock()
-	slog.Debug(worker.LogTag("Stopping..."))
+	worker.Lock()
+	defer worker.Unlock()
+	slog.Debug(worker.tag.F("Stopping..."))
 	if worker.stopped {
-		slog.Warn(worker.LogTag("Already stopped!"))
+		slog.Warn(worker.tag.F("Already stopped!"))
 		return
 	}
 	worker.pinger.Stop()
@@ -82,7 +96,7 @@ func (worker *Worker) Stop() {
 	worker.periodicUpdater.Stop()
 	worker.stopped = true
 	worker.update_status_unsafe(STATUS_UNKNOWN, UPD_SOURCE_WORKER_STOP)
-	slog.Info(worker.LogTag("Stopped"))
+	slog.Info(worker.tag.F("Stopped"))
 	collectionWg.Done()
 }
 
@@ -94,24 +108,16 @@ func (worker *Worker) LastSeen() time.Time {
 	return worker.lastSeen
 }
 
-func (worker *Worker) LogTag(message string) string {
-	return fmt.Sprintf("[WORKER:%v] %v", worker.target, message)
-}
-
 func (worker *Worker) update_status_unsafe(status OnlineStatus, updSource UpdSource) {
-	// if worker.invalid {
-	// 	slog.Error(worker.LogTag("Unexpected call of UpdateStatus() for worker in invalid status"))
-	// 	return
-	// }
 	if status != worker.status {
 		slog.Debug(
-			worker.LogTag("Status changed"),
-			"SOURCE",
+			worker.tag.F("Status changed"),
+			"source",
 			updSource,
-			"STATUS",
+			"status",
 			STATUS_NAMES[status],
 		)
-		worker.onStatusChange(worker.target, status, worker.lastSeen, updSource)
+		worker.onStatusChange(worker.target, status, worker.lastSeen, updSource /* , worker.tag */)
 		worker.status = status
 	}
 }
@@ -121,24 +127,27 @@ func New(
 	onStatusChange OnlineStatusChangeHandler,
 ) (*Worker, error) {
 
+	tag := tagBase.With("Ip=%s", target)
+
 	// create instance
-	worker := Worker{
+	worker := &Worker{
 		target:         target,
 		status:         STATUS_UNKNOWN,
 		onStatusChange: onStatusChange,
+		tag:            tag,
 	}
 
 	// provide custom logger to Pinger, to write messages with "[WORKER:<ip>]..." prefix
 	mylogger := WorkerLogger{
 		Logger: slog.Default(),
-		target: target,
+		tag:    tag,
 	}
 
 	var err error
 	worker.pinger, err = probing.NewPinger(target)
 	if err != nil {
 		counters.Errors.Inc()
-		slog.Error(worker.LogTag("Failed to complete probing.NewPinger()"), "err", err)
+		slog.Error(worker.tag.F("Failed to complete probing.NewPinger()"), "err", err)
 		worker.invalid = true
 		// worker.status = STATUS_INVALID
 	}
@@ -152,7 +161,7 @@ func New(
 	)
 	go func() {
 		for range worker.onlineChecker.C {
-			worker.lock.Lock()
+			worker.Lock()
 			status := STATUS_UNKNOWN
 			if !worker.lastSeen.IsZero() {
 				if time.Now().Before(worker.lastSeen.Add(registry.Config.OfflineAfter)) {
@@ -162,7 +171,7 @@ func New(
 				}
 			}
 			worker.update_status_unsafe(status, UPD_SOURCE_ONLINE_CHECKER)
-			worker.lock.Unlock()
+			worker.Unlock()
 		}
 	}()
 
@@ -172,14 +181,16 @@ func New(
 	)
 	go func() {
 		for range worker.periodicUpdater.C {
-			worker.onStatusChange(worker.target, worker.status, worker.lastSeen, UPD_SOURCE_PERIODIC)
+			worker.Lock()
+			worker.onStatusChange(worker.target, worker.status, worker.lastSeen, UPD_SOURCE_PERIODIC /* , worker.tag */)
+			worker.Unlock()
 		}
 	}()
 
 	// update status and lastSeen
 	worker.pinger.OnRecv = func(pkt *probing.Packet) {
-		worker.lock.Lock()
-		defer worker.lock.Unlock()
+		worker.Lock()
+		defer worker.Unlock()
 		worker.lastSeen = time.Now()
 		worker.update_status_unsafe(STATUS_ONLINE, UPD_SOURCE_PING_ON_RECV)
 	}
@@ -187,19 +198,19 @@ func New(
 	go func() {
 		if worker.invalid {
 			counters.Errors.Inc()
-			slog.Error(worker.LogTag("Cannot run pinger since worker already marked as invalid"))
+			slog.Error(worker.tag.F("Cannot run pinger since worker already marked as invalid"))
 		} else {
 			err = worker.pinger.Run() /* RunWithContext */
 			if err != nil {
 				counters.Errors.Inc()
-				slog.Error(worker.LogTag("Failed to complete pinger.Run()"), "err", err)
+				slog.Error(worker.tag.F("Failed to complete pinger.Run()"), "err", err)
 				worker.invalid = true
 				// worker.status = STATUS_INVALID
 			}
 		}
 	}()
 
-	slog.Info(worker.LogTag("Created"))
+	slog.Info(worker.tag.F("Created"))
 
-	return &worker, nil
+	return worker, nil
 }

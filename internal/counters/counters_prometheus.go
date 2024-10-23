@@ -5,16 +5,28 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var ApiRequests = promauto.NewCounterVec(
+var ActionsHandled = promauto.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "pinger_api_requests",
+		Name: "pinger_actions_handled",
 	},
-	[]string{"topic"},
+	[]string{"action", "target"},
 )
 
 var Errors = promauto.NewCounter(
 	prometheus.CounterOpts{
 		Name: "pinger_errors",
+	},
+)
+
+var MqttReceived = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "pinger_mqtt_received",
+	},
+)
+
+var MqttPublished = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "pinger_mqtt_published",
 	},
 )
 

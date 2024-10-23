@@ -19,8 +19,7 @@ func add_unsafe(worker *Worker) {
 		collection = make(map[string]*Worker)
 	}
 	collection[worker.target] = worker
-	slog.Debug("[MAIN] worker added", "size", len_unsafe())
-	// utils.PrintMemUsage()
+	slog.Debug(tagBase.F("Worker added"), "len", len_unsafe())
 }
 
 func Get(target string) (*Worker, error) {
@@ -69,8 +68,7 @@ func Delete(target string, onChange OnlineStatusChangeHandler) error {
 	}
 	worker.Stop()
 	delete(collection, target)
-	slog.Debug("[MAIN] worker deleted", "size", len_unsafe())
-	// utils.PrintMemUsage()
+	slog.Debug(tagBase.F("Worker deleted"), "size", len_unsafe())
 	counters.Workers.Dec()
 	return nil
 }
