@@ -3,25 +3,25 @@
 - check mhx19-next TODOs - store device names and mappings in db
 - poor performace - 10 workers consume 4mb ram and 4% cpu, try Pinger instance polling?
 - no retries after "Failed to complete pinger.Run()" worker is already marked as invalid and wont notice if device will return back online
-- finish implementation for STATUS_INVALID
 - frequent "ERROR err="not Connected"" right after compose stack up
 - for the http://macmini:8888/last-device-messages/192.168.88.44 align timestamp in "message.lastSeen" to match "timestamp"
 - no new mqtt messages after mqtt disconnect/autoreconnect (`Connection lost error="pingresp not received, disconnecting"` and later `Connected broker=tcp://macmini:1883`) + same issue for device-pinger which impacts its service
-- Some weird behavior after 5d uptime, no updates are sent, however mqtt api is alive (del/add/get-stats are working) - need doublecheck, looks everything is ok, on 22 Oct after 1month of uptime do not observe feedback on any api call
-- try: with race flag
-- prof: check device-pinger health after some running time
-- prof: check high goroutines count
+- bug: some weird behavior after 5d uptime, no updates are sent, however mqtt api is alive (del/add/get-stats are working) - need doublecheck, looks everything is ok, kinda reproduced on 22 Oct after 1 month of uptime - do not observe feedback on any api call
   
 ### Pending Prio 1
 
-- check for leaks - no nemory release after deleting workers, released with some delay (deferred GC? try runtime.GC())
-- add some basic telemetry and configure graphana
+- finish implementation for STATUS_INVALID
 - find root cause of the unreasonable docker image size growth from 7.7mb to 8.4mb
-- check why device-pinger is reported by htop several times
 - try error group instead of channels to collect workers errors
 
 ### Completed
 
+- (+) check why device-pinger is reported by htop several times - not reproducable
+- (+) add some basic telemetry and configure graphana
+- (+) bug: check high goroutines count http://localhost:2112/debug/pprof/goroutine?debug=1 - with no workers 10 consumed by paho, others are - root, main x 2, RecordStartTime, os.signal, pprof, net.http
+- (+) try: running with race flag
+- (+) bug: goroutines leakage issue + https://github.com/golang/go/issues/2650 - goroutine with "for range" over ticker channel is blocked forever, since Ticker.C does not closed by design. solution: use "for + select + worker.done chan"
+- (+) check for leaks - no nemory release after deleting workers, released with some delay (deferred GC? try runtime.GC())
 - (+) learn which approach to use when we need to create several instances of pinger and spread "load" - introduce common storage with all ips with need to ping. eg redis. each app lock the ips pool, marks its slice, releases the lock
 - (+) remove timestamps from "production" logger
 - (+) handle "TZ=Europe/Moscow" in container

@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	_ "time/tzdata"
@@ -17,8 +18,9 @@ import (
 )
 
 var (
-	Config    ConfigStorage
-	startTime time.Time
+	Config      ConfigStorage
+	startTime   time.Time
+	startTimeMu sync.Mutex
 )
 
 type Uptime struct {
@@ -94,13 +96,17 @@ func RecordStartTime() {
 	}
 	ticker := time.NewTicker(time.Second) // update metric each second
 	go func() {
+		startTimeMu.Lock()
 		startTime = time.Now()
+		startTimeMu.Unlock()
 		for range ticker.C {
-			counters.Uptime.Set(time.Since(startTime).Seconds())
+			counters.Uptime.Set(GetUptime().Seconds())
 		}
 	}()
 }
 
 func GetUptime() Uptime {
+	startTimeMu.Lock()
+	defer startTimeMu.Unlock()
 	return Uptime{time.Since(startTime)}
 }

@@ -14,9 +14,11 @@ import (
 	_ "github.com/fedulovivan/device-pinger/internal/logger"
 	"github.com/fedulovivan/device-pinger/internal/mqtt"
 	"github.com/fedulovivan/device-pinger/internal/registry"
-	"github.com/fedulovivan/device-pinger/internal/workers"
+	workers_pkg "github.com/fedulovivan/device-pinger/internal/workers"
 	"github.com/fedulovivan/mhz19-go/pkg/utils"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	_ "net/http/pprof"
 )
 
 var tag = utils.NewTag(logger.TAG_MAIN)
@@ -31,13 +33,21 @@ func main() {
 		slog.Info(tag.F("Running in developlment mode"))
 	}
 
+	// create container to store and manage workers
+	workersCollection := workers_pkg.NewCollection()
+	go func() {
+		for len := range workersCollection.OnLenChange() {
+			counters.Workers.Set(float64(len))
+		}
+	}()
+
 	// connect to mqtt broker
-	mqttDisconnect := mqtt.Connect()
+	mqttDisconnect := mqtt.Connect(workersCollection)
 
 	// spawn workers
 	for _, target := range registry.Config.TargetIps {
 		go func(t string) {
-			_, err := workers.Create(t, mqtt.SendStatus)
+			_, err := workersCollection.Create(workers_pkg.TargetAddr(t), mqtt.SendStatus)
 			if err != nil {
 				counters.Errors.Inc()
 				slog.Error(tag.F("Unable to create worker"), "err", err.Error())
@@ -57,13 +67,15 @@ func main() {
 	signal.Notify(stopped, os.Interrupt, syscall.SIGTERM)
 	<-stopped
 	slog.Debug(tag.F("App termination signal received"))
-	workers.StopAll()
+	workersCollection.StopAll()
 
 	// wait for the all workers to complete
-	slog.Debug(tag.F("Waiting for the all workers to complete"))
-	workers.Wait()
+	if workersCollection.Len() > 0 {
+		slog.Debug(tag.F("Waiting for the %d workers to complete", workersCollection.Len()))
+		workersCollection.Wait()
+	}
 
-	// disconnect mqtt only after stopping workers
+	// disconnect from mqtt only after stopping workers
 	mqttDisconnect()
 
 	slog.Info(tag.F("All done, bye-bye"))

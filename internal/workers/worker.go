@@ -32,8 +32,10 @@ var tagBase = utils.NewTag(logger.TAG_WRKR)
 
 type OnlineStatus int8
 
+type TargetAddr string
+
 type OnlineStatusChangeHandler func(
-	target string,
+	target TargetAddr,
 	status OnlineStatus,
 	lastSeen time.Time,
 	updSource UpdSource,
@@ -68,13 +70,13 @@ var UPD_SOURCE_NAMES = map[UpdSource]string{
 type Worker struct {
 	sync.Mutex
 	onStatusChange  OnlineStatusChangeHandler
-	target          string
+	target          TargetAddr
 	pinger          *probing.Pinger
 	status          OnlineStatus
 	lastSeen        time.Time
 	onlineChecker   *time.Ticker
 	periodicUpdater *time.Ticker
-	stopped         bool
+	done            chan struct{}
 	invalid         bool
 	tag             utils.Tag
 }
@@ -83,21 +85,20 @@ func (worker *Worker) Tag() utils.Tag {
 	return worker.tag
 }
 
+func (worker *Worker) Done() <-chan struct{} {
+	return worker.done
+}
+
 func (worker *Worker) Stop() {
 	worker.Lock()
 	defer worker.Unlock()
 	slog.Debug(worker.tag.F("Stopping..."))
-	if worker.stopped {
-		slog.Warn(worker.tag.F("Already stopped!"))
-		return
-	}
 	worker.pinger.Stop()
 	worker.onlineChecker.Stop()
 	worker.periodicUpdater.Stop()
-	worker.stopped = true
 	worker.update_status_unsafe(STATUS_UNKNOWN, UPD_SOURCE_WORKER_STOP)
 	slog.Info(worker.tag.F("Stopped"))
-	collectionWg.Done()
+	close(worker.done)
 }
 
 func (worker *Worker) Status() OnlineStatus {
@@ -123,55 +124,55 @@ func (worker *Worker) update_status_unsafe(status OnlineStatus, updSource UpdSou
 }
 
 func New(
-	target string,
+	target TargetAddr,
 	onStatusChange OnlineStatusChangeHandler,
 ) (*Worker, error) {
-
-	tag := tagBase.With("Ip=%s", target)
 
 	// create instance
 	worker := &Worker{
 		target:         target,
 		status:         STATUS_UNKNOWN,
 		onStatusChange: onStatusChange,
-		tag:            tag,
-	}
-
-	// provide custom logger to Pinger, to write messages with "[WORKER:<ip>]..." prefix
-	mylogger := WorkerLogger{
-		Logger: slog.Default(),
-		tag:    tag,
+		tag:            tagBase.With("Ip=%s", target),
+		done:           make(chan struct{}),
 	}
 
 	var err error
-	worker.pinger, err = probing.NewPinger(target)
+	worker.pinger, err = probing.NewPinger(string(target))
 	if err != nil {
 		counters.Errors.Inc()
 		slog.Error(worker.tag.F("Failed to complete probing.NewPinger()"), "err", err)
 		worker.invalid = true
-		// worker.status = STATUS_INVALID
 	}
 	worker.pinger.Interval = registry.Config.PingerInterval
-	worker.pinger.SetLogger(mylogger)
-	// worker.pinger.SetAddr("1.1.1.1")
+
+	// use logger adapter to write pinger messages with slog and with custom prefix
+	worker.pinger.SetLogger(SlogAdapter{worker.tag})
 
 	// start periodic checks to ensure device is still online
 	worker.onlineChecker = time.NewTicker(
 		registry.Config.OfflineCheckInterval,
 	)
 	go func() {
-		for range worker.onlineChecker.C {
-			worker.Lock()
-			status := STATUS_UNKNOWN
-			if !worker.lastSeen.IsZero() {
-				if time.Now().Before(worker.lastSeen.Add(registry.Config.OfflineAfter)) {
-					status = STATUS_ONLINE
-				} else {
-					status = STATUS_OFFLINE
+		for {
+			select {
+			case <-worker.done:
+				return
+			case <-worker.onlineChecker.C:
+				worker.Lock()
+				fmt.Println("onlineChecker tick")
+				status := STATUS_UNKNOWN
+				if !worker.lastSeen.IsZero() {
+					if time.Now().Before(worker.lastSeen.Add(registry.Config.OfflineAfter)) {
+						status = STATUS_ONLINE
+					} else {
+						status = STATUS_OFFLINE
+					}
 				}
+				worker.update_status_unsafe(status, UPD_SOURCE_ONLINE_CHECKER)
+				worker.Unlock()
+
 			}
-			worker.update_status_unsafe(status, UPD_SOURCE_ONLINE_CHECKER)
-			worker.Unlock()
 		}
 	}()
 
@@ -180,10 +181,16 @@ func New(
 		registry.Config.PeriodicUpdateInterval,
 	)
 	go func() {
-		for range worker.periodicUpdater.C {
-			worker.Lock()
-			worker.onStatusChange(worker.target, worker.status, worker.lastSeen, UPD_SOURCE_PERIODIC /* , worker.tag */)
-			worker.Unlock()
+		for {
+			select {
+			case <-worker.done:
+				return
+			case <-worker.periodicUpdater.C:
+				worker.Lock()
+				fmt.Println("periodicUpdater tick")
+				worker.onStatusChange(worker.target, worker.status, worker.lastSeen, UPD_SOURCE_PERIODIC /* , worker.tag */)
+				worker.Unlock()
+			}
 		}
 	}()
 
@@ -200,12 +207,11 @@ func New(
 			counters.Errors.Inc()
 			slog.Error(worker.tag.F("Cannot run pinger since worker already marked as invalid"))
 		} else {
-			err = worker.pinger.Run() /* RunWithContext */
+			err = worker.pinger.Run()
 			if err != nil {
 				counters.Errors.Inc()
 				slog.Error(worker.tag.F("Failed to complete pinger.Run()"), "err", err)
 				worker.invalid = true
-				// worker.status = STATUS_INVALID
 			}
 		}
 	}()

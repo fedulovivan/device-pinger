@@ -4,85 +4,88 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
-
-	"github.com/fedulovivan/device-pinger/internal/counters"
 )
 
-var (
-	collectionWg   sync.WaitGroup
-	collection     map[string](*Worker)
-	collectionLock sync.RWMutex
-)
+type Collection struct {
+	sync.RWMutex
+	wg        sync.WaitGroup
+	data      map[TargetAddr](*Worker)
+	lenChange chan int
+}
 
-func add_unsafe(worker *Worker) {
-	if collection == nil {
-		collection = make(map[string]*Worker)
+func NewCollection() *Collection {
+	return &Collection{
+		data:      make(map[TargetAddr]*Worker),
+		lenChange: make(chan int),
 	}
-	collection[worker.target] = worker
-	slog.Debug(tagBase.F("Worker added"), "len", len_unsafe())
 }
 
-func Get(target string) (*Worker, error) {
-	collectionLock.RLock()
-	defer collectionLock.RUnlock()
-	return get_unsafe(target)
+func (c *Collection) Get(target TargetAddr) (*Worker, error) {
+	c.RLock()
+	defer c.RUnlock()
+	return c.get_unsafe(target)
 }
 
-func get_unsafe(target string) (*Worker, error) {
-	w, ok := collection[target]
+func (c *Collection) get_unsafe(target TargetAddr) (*Worker, error) {
+	w, ok := c.data[target]
 	if !ok {
 		return nil, errors.New("not exist")
 	}
 	return w, nil
 }
 
-func StopAll() {
-	for _, worker := range collection {
+func (c *Collection) OnLenChange() chan int {
+	return c.lenChange
+}
+
+func (c *Collection) StopAll() {
+	for _, worker := range c.data {
 		go worker.Stop()
 	}
 }
 
-func Create(
-	target string,
+func (c *Collection) Create(
+	target TargetAddr,
 	onStatusChange OnlineStatusChangeHandler,
 ) (*Worker, error) {
-	collectionLock.Lock()
-	defer collectionLock.Unlock()
-	_, ok := collection[target]
+	c.Lock()
+	defer c.Unlock()
+	_, ok := c.data[target]
 	if ok {
 		return nil, errors.New("already exist")
 	}
-	w, _ := New(target, onStatusChange)
-	collectionWg.Add(1)
-	add_unsafe(w)
-	counters.Workers.Inc()
-	return w, nil
+	c.wg.Add(1)
+	worker, _ := New(target, onStatusChange)
+	c.data[worker.target] = worker
+	slog.Debug(tagBase.F("Worker added"), "len", len(c.data))
+	c.lenChange <- len(c.data)
+	go func() {
+		<-worker.Done()
+		c.wg.Done()
+	}()
+	return worker, nil
 }
 
-func Delete(target string, onChange OnlineStatusChangeHandler) error {
-	collectionLock.Lock()
-	defer collectionLock.Unlock()
-	worker, err := get_unsafe(target)
+func (c *Collection) Delete(target TargetAddr, onChange OnlineStatusChangeHandler) error {
+	c.Lock()
+	defer c.Unlock()
+	worker, err := c.get_unsafe(target)
 	if err != nil {
 		return err
 	}
 	worker.Stop()
-	delete(collection, target)
-	slog.Debug(tagBase.F("Worker deleted"), "size", len_unsafe())
-	counters.Workers.Dec()
+	delete(c.data, target)
+	slog.Debug(tagBase.F("Worker deleted"), "len", len(c.data))
+	c.lenChange <- len(c.data)
 	return nil
 }
 
-func Wait() {
-	collectionWg.Wait()
+func (c *Collection) Wait() {
+	c.wg.Wait()
 }
 
-func len_unsafe() int {
-	return len(collection)
-}
-
-func Len() int {
-	collectionLock.RLock()
-	defer collectionLock.RUnlock()
-	return len_unsafe()
+func (c *Collection) Len() int {
+	c.RLock()
+	defer c.RUnlock()
+	return len(c.data)
 }

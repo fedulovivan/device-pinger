@@ -12,7 +12,6 @@ import (
 	"github.com/fedulovivan/device-pinger/internal/counters"
 	"github.com/fedulovivan/device-pinger/internal/logger"
 	"github.com/fedulovivan/device-pinger/internal/registry"
-	utils_local "github.com/fedulovivan/device-pinger/internal/utils"
 	"github.com/fedulovivan/device-pinger/internal/workers"
 	"github.com/fedulovivan/mhz19-go/pkg/utils"
 
@@ -23,7 +22,7 @@ var LBRACKET = byte('{')
 
 var tagBase = utils.NewTag(logger.TAG_MQTT)
 
-type InMessage struct {
+type Request struct {
 	Seq int `json:"seq"`
 }
 
@@ -47,11 +46,14 @@ type StatsResponse struct {
 
 var client MqttLib.Client
 
+var workersCollection *workers.Collection
+
 func GetBokerString() string {
 	return fmt.Sprintf("tcp://%s:%d", registry.Config.MqttHost, registry.Config.MqttPort)
 }
 
-func Connect() func() {
+func Connect(wc *workers.Collection) func() {
+	workersCollection = wc
 	opts := MqttLib.NewClientOptions()
 	opts.AddBroker(GetBokerString())
 	opts.SetClientID(registry.Config.MqttClientId)
@@ -74,17 +76,17 @@ func Connect() func() {
 	}
 }
 
-func BuildTopic(target string, action string) string {
+func BuildTopic(target workers.TargetAddr, action string) string {
 	parts := []string{registry.Config.MqttTopicBase}
 	if len(target) == 0 {
 		parts = append(parts, action)
 	} else {
-		parts = append(parts, target, action)
+		parts = append(parts, string(target), action)
 	}
 	return strings.Join(parts, "/")
 }
 
-func Publish(target string, action string, rsp any /* , tagext utils.Tag */) error {
+func Publish(target workers.TargetAddr, action string, rsp any /* , tagext utils.Tag */) error {
 	payload, err := json.Marshal(rsp)
 	if err != nil {
 		return err
@@ -110,10 +112,10 @@ func SendStats() {
 	runtime.ReadMemStats(&m)
 	rsp := StatsResponse{
 		MemoryAlloc: m.Alloc,
-		Workers:     workers.Len(),
+		Workers:     workersCollection.Len(),
 		Uptime:      registry.GetUptime(),
 	}
-	err := Publish("", "stats", rsp /* , tagBase */)
+	err := Publish("", "stats", rsp)
 	if err != nil {
 		counters.Errors.Inc()
 		slog.Error(tagBase.F("Error"), "err", err)
@@ -121,25 +123,24 @@ func SendStats() {
 }
 
 var SendStatus workers.OnlineStatusChangeHandler = func(
-	target string,
+	target workers.TargetAddr,
 	status workers.OnlineStatus,
 	lastSeen time.Time,
 	updSource workers.UpdSource,
-	// tag utils.Tag,
 ) {
 	rsp := StatusResponse{
 		Status:    status,
 		LastSeen:  lastSeen,
 		UpdSource: updSource,
 	}
-	err := Publish(target, "status", rsp /* , tag */)
+	err := Publish(target, "status", rsp)
 	if err != nil {
 		counters.Errors.Inc()
 		slog.Error(tagBase.F("Error"), "err", err)
 	}
 }
 
-func SendOpFeedback(req *InMessage, target string, message string, isError bool /* , tag utils.Tag */) {
+func SendOpFeedback(req *Request, target workers.TargetAddr, message string, isError bool) {
 	rsp := SequencedResponse{
 		Message: message,
 		IsError: isError,
@@ -149,14 +150,14 @@ func SendOpFeedback(req *InMessage, target string, message string, isError bool 
 		counters.Errors.Inc()
 		slog.Error(tagBase.F("Error"), "err", message)
 	}
-	err := Publish(target, "rsp", rsp /* , tag */)
+	err := Publish(target, "rsp", rsp)
 	if err != nil {
 		counters.Errors.Inc()
 		slog.Error(tagBase.F("Error"), "err", err)
 	}
 }
 
-func handleAction(action string, target string, message *InMessage) {
+func dispatchAction(action string, target workers.TargetAddr, req *Request) {
 	handled := false
 	switch action {
 	case "get-stats":
@@ -164,39 +165,40 @@ func handleAction(action string, target string, message *InMessage) {
 		handled = true
 	case "get":
 		slog.Debug(tagBase.F("Getting status for %v", target))
-		worker, err := workers.Get(target)
+		worker, err := workersCollection.Get(target)
 		if err == nil {
-			SendStatus(target, worker.Status(), worker.LastSeen(), workers.UPD_SOURCE_MQTT_GET /* , worker.Tag() */)
+			SendStatus(target, worker.Status(), worker.LastSeen(), workers.UPD_SOURCE_MQTT_GET)
 			handled = true
 		} else {
-			SendOpFeedback(message, target, err.Error(), true /* , worker.Tag() */)
+			SendOpFeedback(req, target, err.Error(), true)
 		}
 	case "add":
 		slog.Debug(tagBase.F("Adding new worker for %v", target))
-		_, err := workers.Create(
+		_, err := workersCollection.Create(
 			target,
 			SendStatus,
 		)
 		if err == nil {
-			SendOpFeedback(message, target, "added", false /* , tagBase */)
+			SendOpFeedback(req, target, "added", false)
 			SendStats()
 			handled = true
 		} else {
-			SendOpFeedback(message, target, err.Error(), true /* , tagBase */)
+			SendOpFeedback(req, target, err.Error(), true)
 		}
 	case "del":
 		slog.Debug(tagBase.F("Deleting worker for %v", target))
-		err := workers.Delete(target, SendStatus)
+		err := workersCollection.Delete(target, SendStatus)
+		runtime.GC()
 		if err == nil {
-			SendOpFeedback(message, target, "deleted", false /* , tagBase */)
+			SendOpFeedback(req, target, "deleted", false)
 			SendStats()
 			handled = true
 		} else {
-			SendOpFeedback(message, target, err.Error(), true /* , tagBase */)
+			SendOpFeedback(req, target, err.Error(), true)
 		}
 	}
 	if handled {
-		counters.ActionsHandled.WithLabelValues(action, target).Inc()
+		counters.ActionsHandled.WithLabelValues(action, string(target)).Inc()
 	}
 }
 
@@ -206,38 +208,35 @@ var defaultMessageHandler MqttLib.MessageHandler = func(client MqttLib.Client, m
 
 	topic := msg.Topic()
 
-	// fmt.Println( /* string(msg.Payload()) */ `"foo"`)
-	// slog.Debug(`"foo"`, "foo", `"foo"`)
-	// fmt.Println(fmt.Sprint(string(msg.Payload())))
-	// "foo".MarshalText()
-
 	slog.Debug(
 		tagBase.F("Received"),
 		"topic", topic,
-		"payload", utils_local.Truncate(string(msg.Payload()), 80),
+		"payload", utils.Truncate(string(msg.Payload()), 80),
 	)
 
 	tt := strings.Split(topic, "/")
 
 	ttlen := len(tt)
 
-	message := InMessage{}
+	message := Request{}
 
-	if len(msg.Payload()) > 0 && msg.Payload()[0] == LBRACKET {
+	tryAsJson := len(msg.Payload()) > 0 && msg.Payload()[0] == LBRACKET
+
+	if tryAsJson {
 		err := json.Unmarshal(msg.Payload(), &message)
 		if err != nil {
 			counters.Errors.Inc()
-			slog.Error(tagBase.F("Error"), "err", err)
+			slog.Error(tagBase.F("Failed to parse message payload into json"), "err", err)
 		}
 	}
 
 	if ttlen == 2 {
 		action := tt[1]
-		handleAction(action, "", &message)
+		dispatchAction(action, "", &message)
 	} else if ttlen == 3 {
-		target := tt[1]
+		target := workers.TargetAddr(tt[1])
 		action := tt[2]
-		handleAction(action, target, &message)
+		dispatchAction(action, target, &message)
 	} else {
 		counters.Errors.Inc()
 		slog.Error(tagBase.F("Unexpected topic format %v", topic))
@@ -255,28 +254,32 @@ var connectLostHandler MqttLib.ConnectionLostHandler = func(client MqttLib.Clien
 	slog.Error(tagBase.F("Connection lost"), "err", err)
 }
 
-func subscribe(client MqttLib.Client, topic string, wg *sync.WaitGroup) {
-	defer wg.Done()
+func subscribeOne(client MqttLib.Client, topic string, wg *sync.WaitGroup) {
+	if wg != nil {
+		defer wg.Done()
+	}
 	if token := client.Subscribe(topic, 0, nil); token.Wait() && token.Error() != nil {
 		counters.Errors.Inc()
 		slog.Error(tagBase.F("client.Subscribe()"), "err", token.Error())
 	}
-	slog.Info(tagBase.F("Subscribed"), "topic", topic)
+	slog.Info(tagBase.F("Subscribed to"), "topic", topic)
 }
 
 func subscribeAll(client MqttLib.Client) {
-	var wg sync.WaitGroup
-
-	topics := []string{
-		fmt.Sprintf("%s/get-stats", registry.Config.MqttTopicBase),
-		fmt.Sprintf("%s/+/add", registry.Config.MqttTopicBase),
-		fmt.Sprintf("%s/+/get", registry.Config.MqttTopicBase),
-		fmt.Sprintf("%s/+/del", registry.Config.MqttTopicBase),
+	suffixes := []string{
+		"get-stats",
+		"+/add",
+		"+/get",
+		"+/del",
 	}
-
-	for _, topic := range topics {
-		wg.Add(1)
-		go subscribe(client, topic, &wg)
+	var wg sync.WaitGroup
+	wg.Add(len(suffixes))
+	for _, suffix := range suffixes {
+		go subscribeOne(
+			client,
+			registry.Config.MqttTopicBase+"/"+suffix,
+			&wg,
+		)
 	}
 	wg.Wait()
 	slog.Debug(tagBase.F("All subscribtions are settled"))

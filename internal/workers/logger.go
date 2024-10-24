@@ -8,12 +8,11 @@ import (
 	"github.com/fedulovivan/mhz19-go/pkg/utils"
 )
 
-type WorkerLogger struct {
-	Logger *slog.Logger
-	tag    utils.Tag
+type SlogAdapter struct {
+	tag utils.Tag
 }
 
-func (l WorkerLogger) Fatalf(format string, v ...interface{}) {
+func (l SlogAdapter) Fatalf(format string, v ...interface{}) {
 
 	// before optimization:
 	//   var err = fmt.Sprintf("%v", v)
@@ -32,21 +31,21 @@ func (l WorkerLogger) Fatalf(format string, v ...interface{}) {
 		}
 	}
 
-	l.Logger.Error(l.tag.F(format, v...))
+	slog.Error(l.tag.F(format, v...))
 }
 
-func (l WorkerLogger) Errorf(format string, v ...interface{}) {
-	l.Logger.Error(l.tag.F(format, v...))
+func (l SlogAdapter) Errorf(format string, v ...interface{}) {
+	slog.Error(l.tag.F(format, v...))
 }
 
-func (l WorkerLogger) Warnf(format string, v ...interface{}) {
-	l.Logger.Warn(l.tag.F(format, v...))
+func (l SlogAdapter) Warnf(format string, v ...interface{}) {
+	slog.Warn(l.tag.F(format, v...))
 }
 
-func (l WorkerLogger) Infof(format string, v ...interface{}) {
-	l.Logger.Info(l.tag.F(format, v...))
+func (l SlogAdapter) Infof(format string, v ...interface{}) {
+	slog.Info(l.tag.F(format, v...))
 }
 
-func (l WorkerLogger) Debugf(format string, v ...interface{}) {
-	l.Logger.Debug(l.tag.F(format, v...))
+func (l SlogAdapter) Debugf(format string, v ...interface{}) {
+	slog.Debug(l.tag.F(format, v...))
 }
