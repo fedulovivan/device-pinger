@@ -5,6 +5,20 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+var OnlineCheckerTicks = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "pinger_online_checker_ticks",
+	},
+	[]string{"target"},
+)
+
+var PeriodicUpdaterTicks = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "pinger_periodic_updater_ticks",
+	},
+	[]string{"target"},
+)
+
 var ActionsHandled = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "pinger_actions_handled",

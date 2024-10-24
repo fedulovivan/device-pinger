@@ -160,7 +160,7 @@ func New(
 				return
 			case <-worker.onlineChecker.C:
 				worker.Lock()
-				fmt.Println("onlineChecker tick")
+				counters.OnlineCheckerTicks.WithLabelValues(string(worker.target)).Inc()
 				status := STATUS_UNKNOWN
 				if !worker.lastSeen.IsZero() {
 					if time.Now().Before(worker.lastSeen.Add(registry.Config.OfflineAfter)) {
@@ -187,8 +187,8 @@ func New(
 				return
 			case <-worker.periodicUpdater.C:
 				worker.Lock()
-				fmt.Println("periodicUpdater tick")
-				worker.onStatusChange(worker.target, worker.status, worker.lastSeen, UPD_SOURCE_PERIODIC /* , worker.tag */)
+				counters.PeriodicUpdaterTicks.WithLabelValues(string(worker.target)).Inc()
+				worker.onStatusChange(worker.target, worker.status, worker.lastSeen, UPD_SOURCE_PERIODIC)
 				worker.Unlock()
 			}
 		}
