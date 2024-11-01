@@ -32,21 +32,21 @@ func (d Uptime) MarshalJSON() (b []byte, err error) {
 }
 
 type ConfigStorage struct {
-	TargetIps              []string      `env:"TARGET_IPS"`
 	MqttHost               string        `env:"MQTT_HOST,default=mosquitto"`
 	MqttPort               int           `env:"MQTT_PORT,default=1883"`
 	MqttUsername           string        `env:"MQTT_USERNAME"`
 	MqttPassword           string        `env:"MQTT_PASSWORD"`
-	MqttTopicBase          string        `env:"MQTT_TOPIC_BASE,default=device-pinger"`
-	MqttClientId           string        `env:"MQTT_CLIENT_ID,default=device-pinger"`
-	OfflineAfter           time.Duration `env:"OFFLINE_AFTER,default=30s"`
-	PingerInterval         time.Duration `env:"PINGER_INTERVAL,default=5s"`
-	OfflineCheckInterval   time.Duration `env:"OFFLINE_CHECK_INTERVAL,default=5s"`
-	PeriodicUpdateInterval time.Duration `env:"PERIODIC_UPDATE_INTERVAL,default=10m"`
-	LogLevel               slog.Level    `env:"LOG_LEVEL,default=debug"`
-	IsDev                  bool          `env:"DEV,default=false"`
+	MqttTopicBase          string        `env:"PINGER_MQTT_TOPIC_BASE,default=device-pinger"`
+	MqttClientId           string        `env:"PINGER_MQTT_CLIENT_ID,default=device-pinger"`
+	TargetIps              []string      `env:"PINGER_TARGET_IPS"`
+	OfflineAfter           time.Duration `env:"PINGER_OFFLINE_AFTER,default=30s"`
+	PingerInterval         time.Duration `env:"PINGER_PINGER_INTERVAL,default=5s"`
+	OfflineCheckInterval   time.Duration `env:"PINGER_OFFLINE_CHECK_INTERVAL,default=5s"`
+	PeriodicUpdateInterval time.Duration `env:"PINGER_PERIODIC_UPDATE_INTERVAL,default=10m"`
+	LogLevel               slog.Level    `env:"PINGER_LOG_LEVEL,default=debug"`
+	IsDev                  bool          `env:"PINGER_DEV,default=false"`
 	Tz                     string        `env:"TZ"`
-	PrometheusPort         int           `env:"PROMETHEUS_PORT,default=2112"`
+	PrometheusPort         int           `env:"PINGER_PROMETHEUS_PORT,default=2112"`
 }
 
 // use reflection to parse Config struct tags and report unexpected variables from .env file
